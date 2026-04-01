@@ -1,70 +1,139 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { useAuth } from '../../hooks/useAuth'
 import { useResumen } from '../../hooks/useResumen'
-import { Card, SectionTitle, MetricCard, Badge, EmptyState } from '../../components/UI'
+import { Card, SectionTitle, MetricCard, Badge, EmptyState, Btn } from '../../components/UI'
 import { fmt, fmtM } from '../../utils/calc'
-import { LayoutDashboard, TrendingUp, Wallet, Landmark, DollarSign, Receipt } from 'lucide-react'
+import {
+  LayoutDashboard,
+  TrendingUp,
+  Wallet,
+  Landmark,
+  DollarSign,
+  ArrowRight,
+  Target,
+  AlertTriangle,
+  CheckCircle2,
+  CalendarRange,
+  Layers3,
+} from 'lucide-react'
 
-function Row({ label, value, color }) {
-  return (
-    <div
-      style={{
-        display: 'flex',
-        justifyContent: 'space-between',
-        padding: '7px 0',
-        borderBottom: '1px solid var(--border)',
-      }}
-    >
-      <span style={{ fontSize: 12, color: 'var(--text-2)' }}>{label}</span>
-      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color }}>{value}</span>
-    </div>
-  )
+function currentPeriod() {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
 }
 
-function AlertBox({ type = 'info', title, children }) {
-  const styles = {
+function FocusCard({ tone = 'info', title, body, actionLabel }) {
+  const tones = {
     success: {
-      bg: 'var(--accent-dim)',
-      border: '1px solid rgba(200,240,96,0.25)',
-      color: 'var(--accent)',
+      bg: 'rgba(183,222,74,0.12)',
+      border: '1px solid rgba(183,222,74,0.22)',
+      icon: '#6f8f1c',
+      title: '#5f7d15',
     },
     warning: {
-      bg: 'rgba(255,194,102,0.08)',
-      border: '1px solid rgba(255,194,102,0.25)',
-      color: '#ffc266',
+      bg: 'rgba(216,162,72,0.12)',
+      border: '1px solid rgba(216,162,72,0.22)',
+      icon: '#b27a22',
+      title: '#9b6c1f',
+    },
+    danger: {
+      bg: 'rgba(217,92,92,0.10)',
+      border: '1px solid rgba(217,92,92,0.22)',
+      icon: 'var(--red)',
+      title: 'var(--red)',
     },
     info: {
       bg: 'var(--bg-3)',
       border: '1px solid var(--border)',
-      color: '#5ca8ff',
+      icon: 'var(--blue)',
+      title: '#416fc8',
     },
-    danger: {
-      bg: 'rgba(255,92,92,0.08)',
-      border: '1px solid rgba(255,92,92,0.25)',
-      color: 'var(--red)',
-    },
-  }[type]
+  }
+
+  const c = tones[tone] || tones.info
+  const Icon = tone === 'success' ? CheckCircle2 : tone === 'danger' ? AlertTriangle : Target
 
   return (
-    <div
+    <Card
       style={{
-        padding: '1rem 1.1rem',
-        background: styles.bg,
-        border: styles.border,
-        borderRadius: 'var(--radius-lg)',
-        marginBottom: '1rem',
+        background: c.bg,
+        border: c.border,
+        padding: '1.1rem 1.15rem',
       }}
     >
-      <div style={{ fontSize: 13, fontWeight: 600, color: styles.color, marginBottom: 4 }}>{title}</div>
-      <div style={{ fontSize: 12, color: 'var(--text-2)', lineHeight: 1.65 }}>{children}</div>
-    </div>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+        <Icon size={18} color={c.icon} style={{ marginTop: 2, flexShrink: 0 }} />
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: c.title, marginBottom: 6 }}>{title}</div>
+          <div style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.7 }}>{body}</div>
+          {actionLabel && (
+            <div style={{ marginTop: 12 }}>
+              <Btn variant="subtle" style={{ padding: '6px 10px' }}>
+                {actionLabel} <ArrowRight size={12} />
+              </Btn>
+            </div>
+          )}
+        </div>
+      </div>
+    </Card>
   )
+}
+
+function StepCard({ title, subtitle, status = 'pending' }) {
+  const map = {
+    done: { color: 'green', label: 'Hecho' },
+    pending: { color: 'amber', label: 'Pendiente' },
+    empty: { color: 'default', label: 'Opcional' },
+  }
+  const s = map[status] || map.pending
+
+  return (
+    <Card style={{ padding: '1rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
+        <div style={{ fontSize: 14, color: 'var(--text)', fontWeight: 700 }}>{title}</div>
+        <Badge color={s.color}>{s.label}</Badge>
+      </div>
+      <div style={{ fontSize: 12, color: 'var(--text-3)', lineHeight: 1.7 }}>{subtitle}</div>
+    </Card>
+  )
+}
+
+function PulseCard({ icon: Icon, title, main, sub, color }) {
+  return (
+    <Card style={{ padding: '1rem' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+        <Icon size={14} color={color} />
+        <div style={{ fontSize: 12, color: 'var(--text-3)', fontWeight: 700, letterSpacing: '0.04em' }}>{title}</div>
+      </div>
+
+      <div style={{ fontSize: 20, fontFamily: 'var(--font-mono)', color: color || 'var(--text)', fontWeight: 700, marginBottom: 6 }}>
+        {main}
+      </div>
+
+      <div style={{ fontSize: 11, color: 'var(--text-3)', lineHeight: 1.6 }}>{sub}</div>
+    </Card>
+  )
+}
+
+function buildFocus(state) {
+  if (state.focus) return state.focus
+
+  return {
+    tone: 'info',
+    title: 'Resumen disponible',
+    body: 'Tu información financiera ya está consolidada. Usa esta vista para detectar prioridades y decidir mejor.',
+    actionLabel: null,
+  }
 }
 
 export default function ResumenPage() {
   const { user } = useAuth()
   const uid = user?.uid || null
-  const { loading, state } = useResumen(uid)
+
+  const [viewMode, setViewMode] = useState('current')
+  const [selectedPeriod, setSelectedPeriod] = useState(currentPeriod())
+
+  const { loading, state } = useResumen(uid, { viewMode, selectedPeriod })
 
   if (!uid) return null
 
@@ -97,143 +166,241 @@ export default function ResumenPage() {
       <EmptyState
         icon={LayoutDashboard}
         title="Tu resumen todavía está vacío"
-        subtitle="Empieza creando fuentes de ingreso, gastos, deudas o inversiones."
+        subtitle="Empieza creando una fuente de ingreso, una deuda principal o tu primera meta."
       />
     )
   }
 
-  const { ingresos, gastos, deudas, inversiones, resumen, periodLabel } = state
-
-  const cumplimiento = resumen.cumplimientoMensual
-  const flujoPlan = resumen.flujoLibrePlan
-  const flujoReal = resumen.flujoLibreReal
+  const { ingresos, gastos, deudas, inversiones, resumen, periodLabel, periodData, lifetimeData, snapshot } = state
   const patrimonio = resumen.patrimonioFinanciero
+  const focus = buildFocus(state)
+
+  const isLifetime = viewMode === 'lifetime'
+  const isPeriod = viewMode === 'period'
+  const isCurrent = viewMode === 'current'
+
+  const setupItems = [
+    {
+      title: 'Ingresos cargados',
+      subtitle: ingresos.totalFuentes > 0
+        ? `${ingresos.totalFuentes} fuente(s) registradas. Neto mensual actual: ${fmt(ingresos.netoMensual)}.`
+        : 'Necesitas al menos una fuente de ingreso para que Compás tenga sentido real.',
+      status: ingresos.totalFuentes > 0 ? 'done' : 'pending',
+    },
+    {
+      title: 'Deuda principal definida',
+      subtitle: deudas.total > 0
+        ? `${deudas.total} deuda(s) registradas. Saldo total actual: ${fmt(deudas.saldoTotal)}.`
+        : 'Si tienes deuda, este debería ser uno de los primeros módulos en completar.',
+      status: deudas.total > 0 ? 'done' : 'pending',
+    },
+    {
+      title: 'Inversión o patrimonio en marcha',
+      subtitle: inversiones.total > 0
+        ? `${inversiones.total} inversión(es) registradas. Valor actual: ${fmt(inversiones.valorActualTotal)}.`
+        : 'No es obligatorio para arrancar, pero sí importante para pasar de control a crecimiento.',
+      status: inversiones.total > 0 ? 'done' : 'empty',
+    },
+  ]
+
+  const topMetrics = isLifetime
+    ? [
+        {
+          label: 'Deuda pagada acumulada',
+          value: fmtM(lifetimeData.deudaPagadaAcumulada),
+          color: 'var(--red)',
+        },
+        {
+          label: 'Inversión acumulada',
+          value: fmtM(lifetimeData.inversionAcumulada),
+          color: 'var(--blue)',
+        },
+        {
+          label: 'Saldo deuda actual',
+          value: fmtM(snapshot.deudaSaldoTotal),
+          color: 'var(--red)',
+        },
+        {
+          label: 'Patrimonio actual',
+          value: fmtM(snapshot.patrimonioFinanciero),
+          color: snapshot.patrimonioFinanciero >= 0 ? 'var(--accent)' : 'var(--red)',
+        },
+      ]
+    : [
+        {
+          label: 'Flujo libre plan',
+          value: fmtM(periodData.flujoLibrePlan),
+          color: periodData.flujoLibrePlan >= 0 ? 'var(--accent)' : 'var(--red)',
+        },
+        {
+          label: 'Pago deuda mensual',
+          value: fmtM(snapshot.deudaPagoPlanMensual),
+          color: 'var(--red)',
+        },
+        {
+          label: 'Inversiones actuales',
+          value: fmtM(inversiones.valorActualTotal),
+          color: 'var(--blue)',
+        },
+        {
+          label: isCurrent ? 'Cumplimiento mes' : `Cumplimiento ${periodLabel}`,
+          value: `${periodData.cumplimientoMensual}%`,
+          color:
+            periodData.cumplimientoMensual >= 100
+              ? 'var(--accent)'
+              : periodData.cumplimientoMensual >= 70
+                ? 'var(--amber)'
+                : 'var(--red)',
+        },
+      ]
 
   return (
     <div>
-      {cumplimiento >= 100 ? (
-        <AlertBox type="success" title={`Plan cumplido — ${periodLabel}`}>
-          Registraste {fmt(resumen.realMensual)} frente a un plan de {fmt(resumen.planMensual)}.
-          {flujoPlan > 0 ? ` Aún te quedarían ${fmt(flujoPlan)} después del plan.` : ''}
-        </AlertBox>
-      ) : resumen.realMensual === 0 ? (
-        <AlertBox type={flujoPlan >= 0 ? 'warning' : 'danger'} title={`Sin ejecución registrada — ${periodLabel}`}>
-          Tu plan del mes es {fmt(resumen.planMensual)}. Con el nivel actual de gastos, tu flujo libre plan es{' '}
-          <strong style={{ color: flujoPlan >= 0 ? 'var(--accent)' : 'var(--red)' }}>{fmt(flujoPlan)}</strong>.
-        </AlertBox>
-      ) : (
-        <AlertBox type="info" title={`Mes en curso — ${periodLabel}`}>
-          Llevas {cumplimiento}% del plan mensual. Has registrado {fmt(resumen.realMensual)} y faltan{' '}
-          {fmt(Math.max(0, resumen.planMensual - resumen.realMensual))}.
-        </AlertBox>
-      )}
+      <Card style={{ marginBottom: '1rem', padding: '1rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)', marginBottom: 4 }}>Vista del resumen</div>
+            <div style={{ fontSize: 12, color: 'var(--text-3)' }}>
+              {isCurrent && 'Lectura del mes actual'}
+              {isPeriod && `Lectura del período ${periodLabel}`}
+              {isLifetime && 'Lectura acumulada desde tus primeros registros'}
+            </div>
+          </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: '1.5rem' }}>
-        <MetricCard label="Ingreso neto mensual" value={fmtM(ingresos.netoMensual)} color="var(--accent)" />
-        <MetricCard label="Gasto mensual total" value={fmtM(gastos.totalMensual)} />
-        <MetricCard label="Plan mensual" value={fmtM(resumen.planMensual)} />
-        <MetricCard
-          label="Cumplimiento"
-          value={`${cumplimiento}%`}
-          color={cumplimiento >= 100 ? 'var(--accent)' : cumplimiento >= 70 ? '#f59e0b' : 'var(--red)'}
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <Btn variant={isCurrent ? 'accent' : 'subtle'} onClick={() => setViewMode('current')}>
+              Este mes
+            </Btn>
+
+            <Btn variant={isPeriod ? 'accent' : 'subtle'} onClick={() => setViewMode('period')}>
+              <CalendarRange size={13} />
+              Mes específico
+            </Btn>
+
+            <Btn variant={isLifetime ? 'accent' : 'subtle'} onClick={() => setViewMode('lifetime')}>
+              <Layers3 size={13} />
+              Acumulado
+            </Btn>
+
+            {isPeriod && (
+              <div style={{ width: 170 }}>
+                <input
+                  type="month"
+                  value={selectedPeriod}
+                  onChange={(e) => setSelectedPeriod(e.target.value)}
+                />
+              </div>
+            )}
+          </div>
+        </div>
+      </Card>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: '1.25rem' }}>
+        {topMetrics.map((m) => (
+          <MetricCard
+            key={m.label}
+            label={m.label}
+            value={m.value}
+            color={m.color}
+          />
+        ))}
+      </div>
+
+      <div style={{ marginBottom: '1.25rem' }}>
+        <FocusCard {...focus} />
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.8fr', gap: 12, marginBottom: '1.25rem' }}>
+        <Card>
+          <SectionTitle>{isLifetime ? 'Foto actual del sistema' : `Cómo estás en ${periodLabel}`}</SectionTitle>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <MetricCard label="Ingreso neto mensual" value={fmtM(ingresos.netoMensual)} color="var(--accent)" />
+            <MetricCard label="Gasto mensual total" value={fmtM(gastos.totalMensual)} />
+            <MetricCard
+              label={isLifetime ? 'Deuda pagada acumulada' : 'Plan mensual'}
+              value={fmtM(isLifetime ? lifetimeData.deudaPagadaAcumulada : periodData.planMensual)}
+            />
+            <MetricCard
+              label={isLifetime ? 'Inversión acumulada' : 'Ejecución del período'}
+              value={fmtM(isLifetime ? lifetimeData.inversionAcumulada : periodData.realMensual)}
+              color={isLifetime ? 'var(--blue)' : 'var(--text)'}
+            />
+          </div>
+        </Card>
+
+        <Card>
+          <SectionTitle>{isLifetime ? 'Base del sistema' : 'Próximos pasos'}</SectionTitle>
+
+          <div style={{ display: 'grid', gap: 10 }}>
+            {setupItems.map((item) => (
+              <StepCard key={item.title} {...item} />
+            ))}
+          </div>
+        </Card>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+        <PulseCard
+          icon={Wallet}
+          title="Ingresos"
+          main={fmt(ingresos.netoMensual)}
+          sub={`${ingresos.totalFuentes} fuente(s) registradas`}
+          color="var(--accent)"
+        />
+
+        <PulseCard
+          icon={Landmark}
+          title="Deudas"
+          main={fmt(deudas.saldoTotal)}
+          sub={
+            isLifetime
+              ? `${deudas.total} deuda(s) · pagado acumulado ${fmt(deudas.realAcumulado)}`
+              : `${deudas.total} deuda(s) · real del período ${fmt(deudas.realMensual)}`
+          }
+          color="var(--red)"
+        />
+
+        <PulseCard
+          icon={DollarSign}
+          title="Inversiones"
+          main={fmt(inversiones.valorActualTotal)}
+          sub={
+            isLifetime
+              ? `${inversiones.total} inversión(es) · acumulado ${fmt(inversiones.realAcumulado)}`
+              : `${inversiones.total} inversión(es) · real del período ${fmt(inversiones.realMensual)}`
+          }
+          color="var(--blue)"
         />
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: '1.5rem' }}>
-        <MetricCard label="Saldo de deudas" value={fmtM(deudas.saldoTotal)} color="var(--red)" />
-        <MetricCard label="Valor inversiones" value={fmtM(inversiones.valorActualTotal)} color="#5ca8ff" />
-        <MetricCard
-          label="Patrimonio financiero"
-          value={fmtM(patrimonio)}
-          color={patrimonio >= 0 ? 'var(--accent)' : 'var(--red)'}
-        />
-        <MetricCard
-          label="Flujo libre plan"
-          value={fmtM(flujoPlan)}
-          color={flujoPlan >= 0 ? 'var(--accent)' : 'var(--red)'}
-        />
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: '1rem' }}>
-        <Card>
-          <SectionTitle>Vista consolidada</SectionTitle>
-          <Row label="Ingreso bruto mensual" value={fmt(ingresos.brutoMensual)} />
-          <Row label="Ingreso neto mensual" value={fmt(ingresos.netoMensual)} color="var(--accent)" />
-          <Row label="Gasto fijo mensual" value={fmt(gastos.fijoMensual)} />
-          <Row label="Gasto variable mensual" value={fmt(gastos.variableMensual)} />
-          <Row label="Provisión extraordinarios" value={fmt(gastos.extraordinarioProvisionMensual)} />
-          <Row label="Suscripciones" value={fmt(gastos.suscripcionesMensual)} />
-          <Row label="Total gastos" value={fmt(gastos.totalMensual)} />
-          <Row label="Flujo libre real" value={fmt(flujoReal)} color={flujoReal >= 0 ? '#5ca8ff' : 'var(--red)'} />
-        </Card>
-
-        <Card>
-          <SectionTitle>Plan vs ejecución</SectionTitle>
-          <Row label="Plan deuda" value={fmt(deudas.planMensual)} />
-          <Row label="Real deuda" value={fmt(deudas.realMensual)} color={deudas.realMensual >= deudas.planMensual ? 'var(--accent)' : 'var(--text)'} />
-          <Row label="Plan inversiones" value={fmt(inversiones.planMensual)} />
-          <Row label="Real inversiones" value={fmt(inversiones.realMensual)} color={inversiones.realMensual >= inversiones.planMensual ? 'var(--accent)' : 'var(--text)'} />
-          <Row label="Plan mensual total" value={fmt(resumen.planMensual)} />
-          <Row label="Real mensual total" value={fmt(resumen.realMensual)} color="#5ca8ff" />
-          <div style={{ marginTop: 12 }}>
-            <Badge color={cumplimiento >= 100 ? 'green' : cumplimiento >= 70 ? 'amber' : 'red'}>
-              {cumplimiento}% cumplimiento del mes
-            </Badge>
-          </div>
-        </Card>
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
-        <Card>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-            <Wallet size={14} color="var(--accent)" />
-            <SectionTitle>Ingresos</SectionTitle>
-          </div>
-          <Row label="Fuentes" value={String(ingresos.totalFuentes)} />
-          <Row label="Neto mensual" value={fmt(ingresos.netoMensual)} />
-        </Card>
-
-        <Card>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-            <Receipt size={14} color="#ffc266" />
-            <SectionTitle>Gastos</SectionTitle>
-          </div>
-          <Row label="Mensual total" value={fmt(gastos.totalMensual)} />
-          <Row label="Provisión extra" value={fmt(gastos.extraordinarioProvisionMensual)} />
-        </Card>
-
-        <Card>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-            <Landmark size={14} color="var(--red)" />
-            <SectionTitle>Deudas</SectionTitle>
-          </div>
-          <Row label="Total deudas" value={String(deudas.total)} />
-          <Row label="Saldo total" value={fmt(deudas.saldoTotal)} />
-        </Card>
-
-        <Card>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-            <DollarSign size={14} color="#5ca8ff" />
-            <SectionTitle>Inversiones</SectionTitle>
-          </div>
-          <Row label="Total inversiones" value={String(inversiones.total)} />
-          <Row label="Valor actual" value={fmt(inversiones.valorActualTotal)} />
-        </Card>
-      </div>
-
-      <Card style={{ marginTop: '1rem' }}>
+      <Card style={{ marginTop: '1.25rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
           <TrendingUp size={14} color="var(--accent)" />
-          <SectionTitle>Lectura ejecutiva</SectionTitle>
+          <SectionTitle>Lectura simple</SectionTitle>
         </div>
-        <div style={{ fontSize: 12, color: 'var(--text-2)', lineHeight: 1.75 }}>
-          Hoy tu estructura muestra un ingreso neto mensual de <strong style={{ color: 'var(--text)' }}>{fmt(ingresos.netoMensual)}</strong>,
-          gastos mensuales de <strong style={{ color: 'var(--text)' }}>{fmt(gastos.totalMensual)}</strong> y un flujo libre plan de{' '}
-          <strong style={{ color: flujoPlan >= 0 ? 'var(--accent)' : 'var(--red)' }}>{fmt(flujoPlan)}</strong>.
-          Tu patrimonio financiero actual es{' '}
-          <strong style={{ color: patrimonio >= 0 ? 'var(--accent)' : 'var(--red)' }}>{fmt(patrimonio)}</strong>,
-          calculado como inversiones menos saldo de deuda.
-        </div>
+
+        {!isLifetime ? (
+          <div style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.8 }}>
+            En <strong style={{ color: 'var(--text)' }}>{periodLabel}</strong> estás generando{' '}
+            <strong style={{ color: 'var(--text)' }}>{fmt(ingresos.netoMensual)}</strong> netos al mes y gastando{' '}
+            <strong style={{ color: 'var(--text)' }}>{fmt(gastos.totalMensual)}</strong>. Tu plan del período es{' '}
+            <strong style={{ color: 'var(--text)' }}>{fmt(periodData.planMensual)}</strong>, tu ejecución real va en{' '}
+            <strong style={{ color: 'var(--blue)' }}>{fmt(periodData.realMensual)}</strong> y el flujo libre plan queda en{' '}
+            <strong style={{ color: periodData.flujoLibrePlan >= 0 ? 'var(--accent)' : 'var(--red)' }}>
+              {fmt(periodData.flujoLibrePlan)}
+            </strong>.
+          </div>
+        ) : (
+          <div style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.8 }}>
+            Desde tus primeros registros has acumulado{' '}
+            <strong style={{ color: 'var(--red)' }}>{fmt(lifetimeData.deudaPagadaAcumulada)}</strong> en pagos de deuda
+            y <strong style={{ color: 'var(--blue)' }}>{fmt(lifetimeData.inversionAcumulada)}</strong> en inversión registrada.
+            Hoy tu patrimonio financiero actual es{' '}
+            <strong style={{ color: patrimonio >= 0 ? 'var(--accent)' : 'var(--red)' }}>{fmt(patrimonio)}</strong>,
+            calculado como inversiones actuales menos saldo actual de deuda.
+          </div>
+        )}
       </Card>
     </div>
   )

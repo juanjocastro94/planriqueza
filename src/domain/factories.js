@@ -23,45 +23,7 @@ export function createEmptyState() {
   }
 }
 
-export function createIncomeRecord(periodo = '') {
-  return {
-    id: createId('inc_reg'),
-    periodo,
-    bruto: 0,
-    neto: 0,
-    salud: 0,
-    pension: 0,
-    solidaridad: 0,
-    retencion: 0,
-    otrosDescuentos: 0,
-    variable: 0,
-    nota: '',
-  }
-}
 
-export function createIncomeSource({
-  nombre = '',
-  tipo = 'nomina',
-  moneda = 'COP',
-  periodicidad = 'mensual',
-} = {}) {
-  return {
-    id: createId('inc'),
-    nombre,
-    tipo,
-    activo: true,
-    moneda,
-    periodicidad,
-    crecimientoEsperadoAnualPct: 0,
-    cambiosRealesPorAno: {},
-    configuracion: {
-      usaDesprendible: tipo === 'nomina',
-      vacanciaPct: 0,
-      administracionMensual: 0,
-    },
-    registros: [],
-  }
-}
 
 export function createFixedExpense({
   nombre = '',
@@ -88,6 +50,102 @@ export function createVariableExpense({
     categoria,
     presupuestoMensual,
     activo: true,
+  }
+}
+
+export function createIncomeComponent({
+  clase = 'earning',
+  subtipo = 'otro',
+  monto = 0,
+  linkedEntityType = null,
+  linkedEntityId = null,
+  autoSuggested = false,
+  nota = '',
+} = {}) {
+  return {
+    id: createId('inc_cmp'),
+    clase, // earning | deduction | allocation
+    subtipo,
+    monto,
+    linkedEntityType,
+    linkedEntityId,
+    autoSuggested,
+    nota,
+  }
+}
+
+export function createIncomeRecord({
+  tipoIngreso = 'otro',
+  subtipoIngreso = '',
+  periodo = '',
+  fecha = '',
+} = {}) {
+  return {
+    id: createId('inc_reg'),
+    tipoIngreso,
+    subtipoIngreso,
+    periodo,
+    fecha,
+
+    estado: 'confirmado',
+
+    // montos resumen
+    montoPrincipal: 0,
+    bruto: 0,
+    neto: 0,
+
+    // cruce principal opcional del registro
+    linkedEntityType: null,
+    linkedEntityId: null,
+
+    // para formularios completos tipo nómina
+    components: [],
+
+    // metadatos de UX / trazabilidad
+    origen: '',
+    soporteNombre: '',
+    nota: '',
+  }
+}
+
+export function createIncomeSource({
+  nombre = '',
+  tipo = 'nomina',
+  moneda = 'COP',
+  periodicidad = 'mensual',
+} = {}) {
+  const requiresLinkedAsset = tipo === 'arriendo' || tipo === 'venta-activo'
+  const requiresPayrollBreakdown = tipo === 'nomina'
+
+  return {
+    id: createId('inc'),
+    nombre,
+    tipo,
+    activo: true,
+    moneda,
+    periodicidad,
+
+    crecimientoEsperadoAnualPct: 0,
+    cambiosRealesPorAno: {},
+
+    // para cruces estructurales de la fuente
+    linkedEntityType: requiresLinkedAsset ? 'asset' : null,
+    linkedEntityId: null,
+
+    configuracion: {
+      formMode: requiresPayrollBreakdown ? 'payroll' : 'standard',
+      usaDesprendible: requiresPayrollBreakdown,
+      requiresLinkedAsset,
+      requiresPayrollBreakdown,
+
+      vacanciaPct: 0,
+      administracionMensual: 0,
+
+      // útil para dividendos / intereses / etc
+      reinversionAutomatica: false,
+    },
+
+    registros: [],
   }
 }
 
