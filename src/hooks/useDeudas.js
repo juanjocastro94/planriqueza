@@ -13,20 +13,6 @@ import {
 } from '../services/firestore/deudas'
 import { calcularCuotaDeuda, calcularMesesPagadosDesdeFecha } from '../utils/calc'
 
-function tasaEAFromDebt(debt) {
-  const tasaTipo = debt?.condiciones?.tasaTipo || 'ea'
-  const tasaValor = Number(debt?.condiciones?.tasaValor || 0)
-
-  if (tasaTipo === 'nmv') {
-    return (Math.pow(1 + tasaValor / 100, 12) - 1) * 100
-  }
-
-  return tasaValor
-}
-
-function tasaMensualFromEA(tasaEA) {
-  return Math.pow(1 + Number(tasaEA || 0) / 100, 1 / 12) - 1
-}
 
 function latestMovementPeriod(movimientos = []) {
   if (!movimientos.length) return null
@@ -35,75 +21,148 @@ function latestMovementPeriod(movimientos = []) {
 
 function deriveDebt(debt) {
   const condiciones = debt?.condiciones || {}
-  const costos = debt?.costos || {}
-  const plan = debt?.plan || {}
-  const ejecucion = debt?.ejecucion || {}
+  const costos      = debt?.costos      || {}
+  const plan        = debt?.plan        || {}
+  const ejecucion   = debt?.ejecucion   || {}
 
-  const saldoActual = Number(condiciones.saldoActual || 0)
   const montoOriginal = Number(condiciones.montoOriginal || 0)
-  const residualPct = Number(condiciones.residualPct || 0)
+  const plazoMeses    = Number(condiciones.plazoMeses    || 1)
+  const residualPct   = Number(condiciones.residualPct   || 0)
+  const residualValor = Number(condiciones.residualValor || 0) > 0
+    ? Number(condiciones.residualValor)
+    : Math.round(montoOriginal * (residualPct / 100))
 
-  const residualValor =
-    Number(condiciones.residualValor || 0) > 0
-      ? Number(condiciones.residualValor || 0)
-      : Math.round((montoOriginal || saldoActual) * (residualPct / 100))
+  const movimientos         = ejecucion.movimientos         || []
+  const eventosPlanificados = plan.eventosPlanificados      || []
 
-  const mesesPagados = calcularMesesPagadosDesdeFecha(condiciones.fechaDesembolso)
-  const mesesRestantes = Math.max(1, Number(condiciones.plazoMeses || 1) - mesesPagados)
+  // ── Tasa mensual ──────────────────────────────────────────────────────────
+  const tasaTipo  = condiciones.tasaTipo  || 'ea'
+  const tasaValor = Number(condiciones.tasaValor || 0)
+  const tasaEA    = tasaTipo === 'nmv'
+    ? (Math.pow(1 + tasaValor / 100, 12) - 1) * 100
+    : tasaValor
+  const i = Math.pow(1 + tasaEA / 100, 1 / 12) - 1  // tasa mensual
 
-  const cuotaCalculada = calcularCuotaDeuda({
-    saldo: saldoActual,
-    tasaTipo: condiciones.tasaTipo,
-    tasaValor: Number(condiciones.tasaValor || 0),
-    mesesRestantes,
-    residualPct: Number(condiciones.residualPct || 0),
-  })
+  // ── Cuota FIJA sobre monto original y plazo total (amortización francesa) ─
+  // C = (P - G/(1+i)^n) × i / (1 - (1+i)^-n)
+  // Si hay valor residual (globo), se descuenta del capital a amortizar
+  let cuotaOriginal = 0
+  if (montoOriginal > 0 && i > 0) {
+    const factor = Math.pow(1 + i, plazoMeses)
+    cuotaOriginal = Math.round(
+      (montoOriginal - residualValor / factor) * i / (1 - 1 / factor)
+    )
+  } else if (montoOriginal > 0) {
+    cuotaOriginal = Math.round(montoOriginal / plazoMeses)
+  }
 
-  const cuotaFinanciera =
-    Number(condiciones.cuotaManual || 0) > 0
-      ? Number(condiciones.cuotaManual || 0)
-      : cuotaCalculada
+  // ── Meses pagados desde la fecha de desembolso ────────────────────────────
+  const mesesPagados   = calcularMesesPagadosDesdeFecha(condiciones.fechaDesembolso)
+  const mesesRestantes = Math.max(1, plazoMeses - mesesPagados)
 
+  // ── Saldo teórico por tabla de amortización francesa ──────────────────────
+  // S(n) = P×(1+i)^n − C×[(1+i)^n − 1]/i
+  let saldoAmortizado = montoOriginal
+  if (montoOriginal > 0 && i > 0 && mesesPagados > 0) {
+    const factor = Math.pow(1 + i, mesesPagados)
+    saldoAmortizado = Math.max(0, Math.round(
+      montoOriginal * factor - cuotaOriginal * (factor - 1) / i
+    ))
+  }
+
+  // ── Abonos extra a capital registrados (reducen el saldo adicional) ───────
+  const abonosExtraCapital = movimientos.reduce(
+    (s, m) => s + Number(m.abonoCapital || 0), 0
+  )
+
+  // ── Saldo real = saldo amortizado − abonos extra ──────────────────────────
+  const saldoReal = Math.max(0, saldoAmortizado - abonosExtraCapital)
+
+  // ── Cuota calculada = cuotaOriginal (es fija, no cambia) ──────────────────
+  // Si el usuario ingresó cuota manual, esa tiene prioridad
+  const cuotaCalculada  = cuotaOriginal
+  const cuotaFinanciera = Number(condiciones.cuotaManual || 0) > 0
+    ? Number(condiciones.cuotaManual)
+    : cuotaCalculada
+
+  // ── Costos mensuales ──────────────────────────────────────────────────────
   const segurosMensuales =
-    Number(costos.seguroVidaMensual || 0) +
-    Number(costos.seguroDesempleoMensual || 0) +
-    Number(costos.seguroHogarMensual || 0) +
+    Number(costos.seguroVidaMensual       || 0) +
+    Number(costos.seguroDesempleoMensual  || 0) +
+    Number(costos.seguroHogarMensual      || 0) +
     Number(costos.seguroTodoRiesgoMensual || 0) +
-    Number(costos.otrosSegurosMensuales || 0)
-
+    Number(costos.otrosSegurosMensuales   || 0)
   const otrosCargosMensuales = Number(costos.otrosCargosMensuales || 0)
   const pagoTotalMensual = cuotaFinanciera + segurosMensuales + otrosCargosMensuales
 
-  const movimientos = ejecucion.movimientos || []
-  const eventosPlanificados = plan.eventosPlanificados || []
-
+  // ── Totales de movimientos ────────────────────────────────────────────────
   const totalMovimientos = movimientos.reduce(
     (acc, mov) => {
-      acc.cuotaPagada += Number(mov.cuotaPagada || 0)
+      acc.cuotaPagada  += Number(mov.cuotaPagada  || 0)
       acc.abonoCapital += Number(mov.abonoCapital || 0)
-      acc.cargos += Number(mov.cargos || 0)
+      acc.cargos       += Number(mov.cargos       || 0)
       return acc
     },
     { cuotaPagada: 0, abonoCapital: 0, cargos: 0 }
   )
 
+  // ── Intereses restantes SIN plan ──────────────────────────────────────────
+  // Total a pagar − saldo pendiente − globo = intereses puros restantes
+  const interesesRestantesSinPlan = Math.max(0, Math.round(
+    cuotaFinanciera * mesesRestantes - saldoReal + residualValor
+  ))
+
+  // ── Proyección CON plan (simulación mes a mes) ────────────────────────────
+  const abonoMensualPlan = Number(plan.abonoMensualCapital || 0)
+  let saldoSim       = saldoReal
+  let mesesConPlan   = mesesRestantes
+  let interesesConPlan = 0
+
+  if (saldoSim > 0 && i > 0 && (abonoMensualPlan > 0 || eventosPlanificados.length > 0)) {
+    saldoSim     = saldoReal
+    mesesConPlan = 0
+    for (let m = 1; m <= mesesRestantes + 1; m++) {
+      if (saldoSim <= 0) break
+      const interesMes      = saldoSim * i
+      const amortizacion    = cuotaFinanciera - interesMes
+      interesesConPlan     += interesMes
+      const eventoMes       = eventosPlanificados
+        .filter(e => Number(e.mesOffset) === m)
+        .reduce((s, e) => s + Number(e.monto || 0), 0)
+      saldoSim = Math.max(0, saldoSim - amortizacion - abonoMensualPlan - eventoMes)
+      mesesConPlan = m
+      if (saldoSim <= 0) break
+    }
+  }
+
+  const mesesAhorrados    = Math.max(0, mesesRestantes - mesesConPlan)
+  const interesesAhorrados = Math.max(0, Math.round(interesesRestantesSinPlan - interesesConPlan))
+
   return {
     ...debt,
     derived: {
-      tasaEA: tasaEAFromDebt(debt),
-      tasaMensual: tasaMensualFromEA(tasaEAFromDebt(debt)),
+      tasaEA,
+      tasaMensual:     i,
       mesesPagados,
       mesesRestantes,
-      globo: residualValor,
+      mesesConPlan,
+      mesesAhorrados,
+      saldoAmortizado,
+      saldoReal,
+      globo:           residualValor,
       residualValor,
+      cuotaOriginal,
       cuotaCalculada,
       cuotaFinanciera,
       segurosMensuales,
       otrosCargosMensuales,
       pagoTotalMensual,
+      interesesRestantesSinPlan,
+      interesesConPlan:  Math.round(interesesConPlan),
+      interesesAhorrados,
       totalMovimientos,
       totalEventosPlanificados: eventosPlanificados.reduce((s, e) => s + Number(e.monto || 0), 0),
-      ultimoPeriodoRegistrado: latestMovementPeriod(movimientos),
+      ultimoPeriodoRegistrado:  latestMovementPeriod(movimientos),
     },
   }
 }
@@ -114,7 +173,7 @@ function deriveDebtsState(items = []) {
   const metrics = debts.reduce(
     (acc, debt) => {
       acc.totalDeudas += 1
-      acc.saldoTotal += Number(debt.condiciones?.saldoActual || 0)
+      acc.saldoTotal += Number(debt.derived?.saldoReal || 0)
       acc.pagoMensualTotal += Number(debt.derived?.pagoTotalMensual || 0)
       acc.abonoMensualPlan += Number(debt.plan?.abonoMensualCapital || 0)
       return acc

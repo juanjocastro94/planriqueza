@@ -6,8 +6,26 @@ import {
   deleteAssetDoc,
 } from '../services/firestore/activos'
 
+function getCrecimientoByTipo(tipo) {
+  const map = {
+    inmueble: 5,
+    vehiculo: -10,
+    negocio: 8,
+    cuenta: 0,
+    otro: 3,
+  }
+  return map[tipo] ?? 3
+}
+
 function deriveAssetsState(items = []) {
-  const activos = items || []
+  const activos = (items || []).map(item => ({
+    ...item,
+    crecimientoEsperadoAnualPct: getCrecimientoByTipo(item.tipo),
+    valorProyectado1año: Math.round(
+      Number(item.valorActual || 0) *
+      (1 + getCrecimientoByTipo(item.tipo) / 100)
+    ),
+  }))
 
   const metrics = activos.reduce(
     (acc, item) => {
@@ -17,16 +35,10 @@ function deriveAssetsState(items = []) {
       }
       return acc
     },
-    {
-      totalActivos: 0,
-      valorTotal: 0,
-    }
+    { totalActivos: 0, valorTotal: 0 }
   )
 
-  return {
-    items: activos,
-    metrics,
-  }
+  return { items: activos, metrics }
 }
 
 export function useActivos(uid) {
@@ -39,14 +51,11 @@ export function useActivos(uid) {
       setLoading(false)
       return
     }
-
     setLoading(true)
-
     const unsubscribe = subscribeAssets(uid, (nextItems) => {
       setItems(nextItems || [])
       setLoading(false)
     })
-
     return () => unsubscribe()
   }, [uid])
 

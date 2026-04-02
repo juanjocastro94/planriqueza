@@ -48,38 +48,29 @@ function getAllPeriods(deudasItems = [], inversionesItems = []) {
 
 function deudaRealMes(items = [], period) {
   return items.reduce((s, debt) => {
+    if (debt?.condiciones?.descontadoNomina) return s  // ← ya está en el neto
     const movimientos = debt?.ejecucion?.movimientos || []
     const total = movimientos
       .filter((m) => m.periodo === period)
-      .reduce(
-        (acc, m) =>
-          acc +
-          safeNum(m.cuotaPagada) +
-          safeNum(m.abonoCapital) +
-          safeNum(m.cargos),
-        0
-      )
+      .reduce((acc, m) =>
+        acc + safeNum(m.cuotaPagada) + safeNum(m.abonoCapital) + safeNum(m.cargos), 0)
     return s + total
   }, 0)
 }
 
 function deudaRealAcumulada(items = []) {
   return items.reduce((s, debt) => {
+    if (debt?.condiciones?.descontadoNomina) return s  // ← ya está en el neto
     const movimientos = debt?.ejecucion?.movimientos || []
-    const total = movimientos.reduce(
-      (acc, m) =>
-        acc +
-        safeNum(m.cuotaPagada) +
-        safeNum(m.abonoCapital) +
-        safeNum(m.cargos),
-      0
-    )
+    const total = movimientos.reduce((acc, m) =>
+      acc + safeNum(m.cuotaPagada) + safeNum(m.abonoCapital) + safeNum(m.cargos), 0)
     return s + total
   }, 0)
 }
 
 function deudaPlanMes(items = []) {
   return items.reduce((s, debt) => {
+    if (debt?.condiciones?.descontadoNomina) return s  // ← ya está en el neto
     const cuota = safeNum(debt?.derived?.pagoTotalMensual)
     const abonoPlan = safeNum(debt?.plan?.abonoMensualCapital)
     return s + cuota + abonoPlan
@@ -246,7 +237,9 @@ export function useResumen(uid, options = {}) {
     const gastoSuscripciones = safeNum(gastos.metrics?.totalSuscripciones)
     const gastoMensualTotal = safeNum(gastos.metrics?.totalMensual)
 
-    const deudaSaldoTotal = safeNum(deudas.metrics?.saldoTotal)
+    const deudaSaldoTotal = (deudas.items || []).reduce(
+      (s, d) => s + safeNum(d.derived?.saldoReal), 0
+    )
     const deudaPagoPlanMensual = deudaPlanMes(deudas.items || [])
     const deudaPagoRealMensual = deudaRealMes(deudas.items || [], resolvedPeriod)
     const deudaPagoRealAcumulado = deudaRealAcumulada(deudas.items || [])

@@ -15,6 +15,8 @@ import MetasPage from './features/metas/MetasPage'
 import SeguimientoPage from './features/seguimiento/SeguimientoPage'
 import SimuladorPage from './features/simulador/SimuladorPage'
 import EscenariosPage from './features/escenarios/EscenariosPage'
+import ComingSoonPage from './features/comingsoon/ComingSoonPage'
+
 
 function PageTitle({ title, children }) {
   return (
@@ -60,10 +62,10 @@ export const router = createBrowserRouter([
       { path: 'deudas', element: <PageTitle title="Deudas"><DeudasPage /></PageTitle> },
       { path: 'inversiones', element: <PageTitle title="Inversiones"><InversionesPage /></PageTitle> },
       { path: 'activos', element: <PageTitle title="Activos"><ActivosPage /></PageTitle> },
-      { path: 'metas', element: <PageTitle title="Metas"><MetasPage /></PageTitle> },
-      { path: 'seguimiento', element: <PageTitle title="Seguimiento"><SeguimientoPage /></PageTitle> },
-      { path: 'simulador', element: <PageTitle title="¿Puedo comprarlo?"><SimuladorPage /></PageTitle> },
-      { path: 'escenarios', element: <PageTitle title="Escenarios"><EscenariosPage /></PageTitle> },
+      { path: 'metas', element: <PageTitle title="Metas"><ComingSoonPage /></PageTitle> },
+      { path: 'seguimiento', element: <PageTitle title="Seguimiento"><ComingSoonPage /></PageTitle> },
+      { path: 'simulador', element: <PageTitle title="¿Puedo comprarlo?"><ComingSoonPage /></PageTitle> },
+      { path: 'escenarios', element: <PageTitle title="Escenarios"><ComingSoonPage /></PageTitle> },
     ],
   },
   {

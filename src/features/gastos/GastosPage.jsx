@@ -2,25 +2,14 @@ import React, { useMemo, useState } from 'react'
 import { useAuth } from '../../hooks/useAuth'
 import { useGastos } from '../../hooks/useGastos'
 import {
-  createFixedExpense,
-  createVariableExpense,
-  createExtraordinaryExpense,
-  createSubscription,
+  createFixedExpense, createVariableExpense,
+  createExtraordinaryExpense, createSubscription,
 } from '../../domain/factories'
 import { TIPOS_GASTO, FRECUENCIAS_GASTO_EXTRA } from '../../domain/types'
-import {
-  Card, Btn, Field, MetricCard, CurrencyInput,
-} from '../../components/UI'
+import { Card, Btn, Field, MetricCard, CurrencyInput } from '../../components/UI'
 import { fmt, fmtM } from '../../utils/calc'
-import {
-  Plus, Trash2, Edit3, AlertTriangle,
-  Home, TrendingUp, Zap, RefreshCw,
-} from 'lucide-react'
+import { Plus, Trash2, Edit3, AlertTriangle, Home, TrendingUp, Zap, RefreshCw } from 'lucide-react'
 import Modal from '../../components/Modal'
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Helpers
-// ─────────────────────────────────────────────────────────────────────────────
 
 function getCategoriaLabel(tipo) {
   const map = {
@@ -33,20 +22,13 @@ function getCategoriaLabel(tipo) {
 
 function monthlyProvision(item) {
   const valor = Number(item?.valor || 0)
-  const veces = {
-    mensual: 12, bimestral: 6, trimestral: 4,
-    semestral: 2, anual: 1, eventual: 1,
-  }[item?.frecuencia || 'anual'] || 1
+  const veces = { mensual: 12, bimestral: 6, trimestral: 4, semestral: 2, anual: 1, eventual: 1 }[item?.frecuencia || 'anual'] || 1
   return Math.round((valor * veces) / 12)
 }
 
 function sortByName(items = []) {
   return [...items].sort((a, b) => (a.nombre || '').localeCompare(b.nombre || ''))
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// ConfirmModal
-// ─────────────────────────────────────────────────────────────────────────────
 
 function ConfirmModal({ open, title, message, onConfirm, onCancel }) {
   if (!open) return null
@@ -64,21 +46,14 @@ function ConfirmModal({ open, title, message, onConfirm, onCancel }) {
   )
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// GastoCard
-// ─────────────────────────────────────────────────────────────────────────────
-
 function GastoCard({ item, amount, subtitle, trailing, onEdit, onDelete, onToggle }) {
   const active = item.activo !== false
   return (
     <div
       style={{
-        background: 'var(--bg-2)',
-        border: '1px solid var(--border-2)',
-        borderRadius: 'var(--radius-lg)',
-        padding: '14px 16px',
-        opacity: active ? 1 : 0.45,
-        position: 'relative',
+        background: 'var(--bg-2)', border: '1px solid var(--border-2)',
+        borderRadius: 'var(--radius-lg)', padding: '14px 16px',
+        opacity: active ? 1 : 0.45, position: 'relative',
         transition: 'border-color .15s, box-shadow .15s',
       }}
       onMouseEnter={e => {
@@ -92,98 +67,40 @@ function GastoCard({ item, amount, subtitle, trailing, onEdit, onDelete, onToggl
         e.currentTarget.querySelector('.card-actions').style.opacity = '0'
       }}
     >
-      {/* Acciones top-right en hover */}
-      <div className="card-actions" style={{
-        position: 'absolute', top: 10, right: 10,
-        display: 'flex', gap: 4, opacity: 0, transition: 'opacity .15s',
-      }}>
-        <button onClick={onEdit} title="Editar" style={{
-          background: 'var(--bg-3)', border: '1px solid var(--border)',
-          borderRadius: 6, cursor: 'pointer', display: 'flex',
-          alignItems: 'center', justifyContent: 'center', width: 26, height: 26,
-        }}>
+      <div className="card-actions" style={{ position: 'absolute', top: 10, right: 10, display: 'flex', gap: 4, opacity: 0, transition: 'opacity .15s' }}>
+        <button onClick={onEdit} title="Editar" style={{ background: 'var(--bg-3)', border: '1px solid var(--border)', borderRadius: 6, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', width: 26, height: 26 }}>
           <Edit3 size={12} color="var(--text-2)" />
         </button>
-        <button onClick={onToggle} title={active ? 'Desactivar' : 'Activar'} style={{
-          background: 'var(--bg-3)', border: '1px solid var(--border)',
-          borderRadius: 6, cursor: 'pointer', display: 'flex',
-          alignItems: 'center', justifyContent: 'center',
-          width: 26, height: 26, fontSize: 14, color: 'var(--text-3)',
-        }}>
+        <button onClick={onToggle} title={active ? 'Desactivar' : 'Activar'} style={{ background: 'var(--bg-3)', border: '1px solid var(--border)', borderRadius: 6, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', width: 26, height: 26, fontSize: 14, color: 'var(--text-3)' }}>
           {active ? '○' : '●'}
         </button>
-        <button onClick={onDelete} title="Eliminar" style={{
-          background: 'var(--bg-3)', border: '1px solid transparent',
-          borderRadius: 6, cursor: 'pointer', display: 'flex',
-          alignItems: 'center', justifyContent: 'center', width: 26, height: 26,
-        }}>
+        <button onClick={onDelete} title="Eliminar" style={{ background: 'var(--bg-3)', border: '1px solid transparent', borderRadius: 6, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', width: 26, height: 26 }}>
           <Trash2 size={12} color="var(--red)" />
         </button>
       </div>
-
-      {/* Categoría */}
-      <div style={{
-        fontSize: 10, fontWeight: 700, color: 'var(--text-3)',
-        textTransform: 'uppercase', letterSpacing: '.07em', marginBottom: 6,
-      }}>
-        {subtitle}
-      </div>
-
-      {/* Nombre */}
-      <div style={{
-        fontSize: 14, fontWeight: 500, color: 'var(--text)',
-        marginBottom: 12, paddingRight: 90,
-        whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-      }}>
-        {item.nombre}
-      </div>
-
-      {/* Monto */}
-      <div style={{
-        fontFamily: 'var(--font-mono)', fontSize: 18,
-        fontWeight: 700, color: 'var(--text)',
-      }}>
-        {amount}
-      </div>
-
+      <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '.07em', marginBottom: 6 }}>{subtitle}</div>
+      <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--text)', marginBottom: 12, paddingRight: 90, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.nombre}</div>
+      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 18, fontWeight: 700, color: 'var(--text)' }}>{amount}</div>
       {trailing && <div style={{ marginTop: 6 }}>{trailing}</div>}
     </div>
   )
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// SectionCard
-// ─────────────────────────────────────────────────────────────────────────────
-
 function SectionCard({ icon: Icon, title, count, total, accentColor = 'var(--text-3)', onAdd, children }) {
   return (
     <Card style={{ marginBottom: '1rem' }}>
       <div style={{
-        display: 'flex', justifyContent: 'space-between',
-        alignItems: 'center', marginBottom: count > 0 ? '1rem' : '0.5rem',
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        flexWrap: 'wrap', gap: 8,
+        marginBottom: count > 0 ? '1rem' : '0.5rem',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <Icon size={15} color={accentColor} />
-          <span style={{
-            fontSize: 12, fontWeight: 700, color: 'var(--text-2)',
-            textTransform: 'uppercase', letterSpacing: '.07em',
-          }}>
-            {title}
-          </span>
-          <span style={{
-            fontSize: 11, padding: '1px 7px', borderRadius: 4,
-            background: 'var(--bg-4)', color: 'var(--text-3)',
-            fontFamily: 'var(--font-mono)',
-          }}>
-            {count}
-          </span>
+          <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '.07em' }}>{title}</span>
+          <span style={{ fontSize: 11, padding: '1px 7px', borderRadius: 4, background: 'var(--bg-4)', color: 'var(--text-3)', fontFamily: 'var(--font-mono)' }}>{count}</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          {total > 0 && (
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--text-2)' }}>
-              {fmtM(total)}
-            </span>
-          )}
+          {total > 0 && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--text-2)' }}>{fmtM(total)}</span>}
           <Btn variant="ghost" onClick={onAdd} style={{ padding: '5px 10px' }}>
             <Plus size={13} /> Agregar
           </Btn>
@@ -194,18 +111,10 @@ function SectionCard({ icon: Icon, title, count, total, accentColor = 'var(--tex
   )
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Constantes
-// ─────────────────────────────────────────────────────────────────────────────
-
 const EMPTY_FIJO  = { nombre: '', categoria: 'hogar',  valorMensual: '' }
 const EMPTY_VAR   = { nombre: '', categoria: 'hogar',  presupuestoMensual: '' }
 const EMPTY_EXTRA = { nombre: '', categoria: 'otro',   valor: '', frecuencia: 'anual', mesBase: 1 }
 const EMPTY_SUB   = { nombre: '', categoria: 'ocio',   valorMensual: '' }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Page principal
-// ─────────────────────────────────────────────────────────────────────────────
 
 export default function GastosPage() {
   const { user } = useAuth()
@@ -224,13 +133,10 @@ export default function GastosPage() {
   const [confirm, setConfirm] = useState(null)
   const [saving,  setSaving]  = useState(false)
 
-  const openAdd  = (type) => {
-    setDraft({ ...{ fijo: EMPTY_FIJO, variable: EMPTY_VAR, extra: EMPTY_EXTRA, sub: EMPTY_SUB }[type] })
-    setModal({ type, item: null })
-  }
-  const openEdit   = (type, item) => { setDraft({ ...item }); setModal({ type, item }) }
+  const openAdd  = (type) => { setDraft({ ...{ fijo: EMPTY_FIJO, variable: EMPTY_VAR, extra: EMPTY_EXTRA, sub: EMPTY_SUB }[type] }); setModal({ type, item: null }) }
+  const openEdit = (type, item) => { setDraft({ ...item }); setModal({ type, item }) }
   const closeModal = () => { setModal(null); setDraft({}) }
-  const set        = (key, val) => setDraft(p => ({ ...p, [key]: val }))
+  const set = (key, val) => setDraft(p => ({ ...p, [key]: val }))
 
   const askDelete = (label, fn) => setConfirm({
     message: `¿Eliminar "${label}"? Esta acción no se puede deshacer.`,
@@ -270,12 +176,11 @@ export default function GastosPage() {
   if (!uid) return null
   if (loading) return <Card><div style={{ fontSize: 13, color: 'var(--text-3)' }}>Cargando gastos…</div></Card>
 
-  // ── Grid adaptivo según cantidad de ítems ─────────────────────────────────
+  // Grid adaptivo: 1 col en móvil, 2 en desktop
   const gridCols = (count) => count === 1
     ? '1fr'
-    : 'repeat(2, minmax(0, 1fr))'
+    : 'repeat(auto-fit, minmax(220px, 1fr))'
 
-  // ── Modal content ─────────────────────────────────────────────────────────
   const categoriaField = (
     <Field label="Categoría">
       <select value={draft.categoria || 'otro'} onChange={e => set('categoria', e.target.value)}>
@@ -291,7 +196,7 @@ export default function GastosPage() {
     if (type === 'fijo') return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         <Field label="Nombre">
-          <input value={draft.nombre || ''} placeholder="Ej. Arriendo, cuota gym…"
+          <input type="text" value={draft.nombre || ''} placeholder="Ej. Arriendo, cuota gym…"
             onChange={e => set('nombre', e.target.value)} autoFocus />
         </Field>
         {categoriaField}
@@ -304,7 +209,7 @@ export default function GastosPage() {
     if (type === 'variable') return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         <Field label="Nombre">
-          <input value={draft.nombre || ''} placeholder="Ej. Mercado, restaurantes…"
+          <input type="text" value={draft.nombre || ''} placeholder="Ej. Mercado, restaurantes…"
             onChange={e => set('nombre', e.target.value)} autoFocus />
         </Field>
         {categoriaField}
@@ -315,10 +220,10 @@ export default function GastosPage() {
     )
 
     if (type === 'extra') return (
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
         <div style={{ gridColumn: '1 / -1' }}>
           <Field label="Nombre">
-            <input value={draft.nombre || ''} placeholder="Ej. Matrícula, viaje…"
+            <input type="text" value={draft.nombre || ''} placeholder="Ej. Matrícula, viaje…"
               onChange={e => set('nombre', e.target.value)} autoFocus />
           </Field>
         </div>
@@ -336,14 +241,8 @@ export default function GastosPage() {
             onChange={e => set('mesBase', e.target.value)} />
         </Field>
         {Number(draft.valor) > 0 && (
-          <div style={{
-            gridColumn: '1 / -1', background: 'var(--bg-3)',
-            borderRadius: 8, padding: '10px 14px', fontSize: 12, color: 'var(--text-2)',
-          }}>
-            Provisión mensual:{' '}
-            <strong style={{ fontFamily: 'var(--font-mono)' }}>
-              {fmt(monthlyProvision(draft))}
-            </strong>
+          <div style={{ gridColumn: '1 / -1', background: 'var(--bg-3)', borderRadius: 8, padding: '10px 14px', fontSize: 12, color: 'var(--text-2)' }}>
+            Provisión mensual: <strong style={{ fontFamily: 'var(--font-mono)' }}>{fmt(monthlyProvision(draft))}</strong>
           </div>
         )}
       </div>
@@ -352,7 +251,7 @@ export default function GastosPage() {
     if (type === 'sub') return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         <Field label="Nombre">
-          <input value={draft.nombre || ''} placeholder="Ej. Netflix, Spotify…"
+          <input type="text" value={draft.nombre || ''} placeholder="Ej. Netflix, Spotify…"
             onChange={e => set('nombre', e.target.value)} autoFocus />
         </Field>
         {categoriaField}
@@ -372,7 +271,7 @@ export default function GastosPage() {
 
   return (
     <div>
-      {/* ── KPIs 2×2 ── */}
+      {/* KPIs */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10, marginBottom: '1rem' }}>
         <MetricCard label="Fijos mensuales"           value={fmtM(metrics.totalFijos || 0)} />
         <MetricCard label="Variables mensuales"       value={fmtM(metrics.totalVariables || 0)} />
@@ -380,125 +279,90 @@ export default function GastosPage() {
         <MetricCard label="Suscripciones"             value={fmtM(metrics.totalSuscripciones || 0)} />
       </div>
 
-      {/* ── Total mensual ── */}
+      {/* Total mensual */}
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         background: 'var(--bg-2)', border: '1px solid var(--border)',
-        borderRadius: 'var(--radius-lg)', padding: '12px 16px',
-        marginBottom: '1.5rem',
+        borderRadius: 'var(--radius-lg)', padding: '12px 16px', marginBottom: '1.5rem',
       }}>
-        <span style={{
-          fontSize: 12, fontWeight: 700, color: 'var(--text-3)',
-          textTransform: 'uppercase', letterSpacing: '.07em',
-        }}>
+        <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '.07em' }}>
           Total mensual estimado
         </span>
-        <span style={{
-          fontFamily: 'var(--font-mono)', fontSize: 22,
-          fontWeight: 700, color: 'var(--text)',
-        }}>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 22, fontWeight: 700, color: 'var(--text)' }}>
           {fmtM(metrics.totalMensual || 0)}
         </span>
       </div>
 
-      {/* ── Gastos fijos ── */}
-      <SectionCard
-        icon={Home} title="Gastos fijos" count={fijosSorted.length}
-        total={metrics.totalFijos} accentColor="var(--accent)"
-        onAdd={() => openAdd('fijo')}
-      >
+      {/* Gastos fijos */}
+      <SectionCard icon={Home} title="Gastos fijos" count={fijosSorted.length} total={metrics.totalFijos} accentColor="var(--accent)" onAdd={() => openAdd('fijo')}>
         {!fijosSorted.length
           ? <p style={{ fontSize: 12, color: 'var(--text-3)', margin: 0, padding: '2px 0' }}>Sin gastos fijos todavía.</p>
           : <div style={{ display: 'grid', gridTemplateColumns: gridCols(fijosSorted.length), gap: 10 }}>
               {fijosSorted.map(item => (
-                <GastoCard key={item.id} item={item}
-                  amount={fmt(item.valorMensual || 0)}
+                <GastoCard key={item.id} item={item} amount={fmt(item.valorMensual || 0)}
                   subtitle={getCategoriaLabel(item.categoria)}
                   onEdit={() => openEdit('fijo', item)}
                   onDelete={() => askDelete(item.nombre, () => deleteFijo(item.id))}
-                  onToggle={() => updateFijo(item.id, { activo: item.activo === false })}
-                />
+                  onToggle={() => updateFijo(item.id, { activo: item.activo === false })} />
               ))}
             </div>
         }
       </SectionCard>
 
-      {/* ── Gastos variables ── */}
-      <SectionCard
-        icon={TrendingUp} title="Gastos variables" count={varSorted.length}
-        total={metrics.totalVariables} accentColor="#f5a623"
-        onAdd={() => openAdd('variable')}
-      >
+      {/* Gastos variables */}
+      <SectionCard icon={TrendingUp} title="Gastos variables" count={varSorted.length} total={metrics.totalVariables} accentColor="#f5a623" onAdd={() => openAdd('variable')}>
         {!varSorted.length
           ? <p style={{ fontSize: 12, color: 'var(--text-3)', margin: 0, padding: '2px 0' }}>Sin gastos variables todavía.</p>
           : <div style={{ display: 'grid', gridTemplateColumns: gridCols(varSorted.length), gap: 10 }}>
               {varSorted.map(item => (
-                <GastoCard key={item.id} item={item}
-                  amount={fmt(item.presupuestoMensual || 0)}
+                <GastoCard key={item.id} item={item} amount={fmt(item.presupuestoMensual || 0)}
                   subtitle={getCategoriaLabel(item.categoria)}
                   onEdit={() => openEdit('variable', item)}
                   onDelete={() => askDelete(item.nombre, () => deleteVariable(item.id))}
-                  onToggle={() => updateVariable(item.id, { activo: item.activo === false })}
-                />
+                  onToggle={() => updateVariable(item.id, { activo: item.activo === false })} />
               ))}
             </div>
         }
       </SectionCard>
 
-      {/* ── Gastos extraordinarios ── */}
-      <SectionCard
-        icon={Zap} title="Gastos extraordinarios" count={extraSorted.length}
-        total={metrics.totalExtraordinariosProvision} accentColor="var(--blue)"
-        onAdd={() => openAdd('extra')}
-      >
+      {/* Extraordinarios */}
+      <SectionCard icon={Zap} title="Gastos extraordinarios" count={extraSorted.length} total={metrics.totalExtraordinariosProvision} accentColor="var(--blue)" onAdd={() => openAdd('extra')}>
         {!extraSorted.length
           ? <p style={{ fontSize: 12, color: 'var(--text-3)', margin: 0, padding: '2px 0' }}>Sin gastos extraordinarios todavía.</p>
           : <div style={{ display: 'grid', gridTemplateColumns: gridCols(extraSorted.length), gap: 10 }}>
               {extraSorted.map(item => (
-                <GastoCard key={item.id} item={item}
-                  amount={fmt(item.valor || 0)}
+                <GastoCard key={item.id} item={item} amount={fmt(item.valor || 0)}
                   subtitle={`${getCategoriaLabel(item.categoria)} · ${item.frecuencia}`}
                   trailing={
-                    <span style={{
-                      fontSize: 11, padding: '2px 7px', borderRadius: 999,
-                      background: 'var(--blue-dim)', color: 'var(--blue)',
-                      fontFamily: 'var(--font-mono)',
-                    }}>
+                    <span style={{ fontSize: 11, padding: '2px 7px', borderRadius: 999, background: 'var(--blue-dim)', color: 'var(--blue)', fontFamily: 'var(--font-mono)' }}>
                       Prov. {fmt(monthlyProvision(item))}
                     </span>
                   }
                   onEdit={() => openEdit('extra', item)}
                   onDelete={() => askDelete(item.nombre, () => deleteExtraordinario(item.id))}
-                  onToggle={() => updateExtraordinario(item.id, { activo: item.activo === false })}
-                />
+                  onToggle={() => updateExtraordinario(item.id, { activo: item.activo === false })} />
               ))}
             </div>
         }
       </SectionCard>
 
-      {/* ── Suscripciones ── */}
-      <SectionCard
-        icon={RefreshCw} title="Suscripciones" count={subsSorted.length}
-        total={metrics.totalSuscripciones} accentColor="var(--text-3)"
-        onAdd={() => openAdd('sub')}
-      >
+      {/* Suscripciones */}
+      <SectionCard icon={RefreshCw} title="Suscripciones" count={subsSorted.length} total={metrics.totalSuscripciones} accentColor="var(--text-3)" onAdd={() => openAdd('sub')}>
         {!subsSorted.length
           ? <p style={{ fontSize: 12, color: 'var(--text-3)', margin: 0, padding: '2px 0' }}>Sin suscripciones todavía.</p>
           : <div style={{ display: 'grid', gridTemplateColumns: gridCols(subsSorted.length), gap: 10 }}>
               {subsSorted.map(item => (
-                <GastoCard key={item.id} item={item}
-                  amount={fmt(item.valorMensual || 0)}
+                <GastoCard key={item.id} item={item} amount={fmt(item.valorMensual || 0)}
                   subtitle={getCategoriaLabel(item.categoria)}
                   onEdit={() => openEdit('sub', item)}
                   onDelete={() => askDelete(item.nombre, () => deleteSuscripcion(item.id))}
-                  onToggle={() => updateSuscripcion(item.id, { activo: item.activo === false })}
-                />
+                  onToggle={() => updateSuscripcion(item.id, { activo: item.activo === false })} />
               ))}
             </div>
         }
       </SectionCard>
 
-      {/* ── Modal agregar / editar ── */}
+      {/* Modal */}
       <Modal open={!!modal} onClose={closeModal} title={modalTitle} width={480} variant="center">
         {renderModalContent()}
         <div style={{ marginTop: '1.25rem', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
@@ -509,15 +373,9 @@ export default function GastosPage() {
         </div>
       </Modal>
 
-      {/* ── Confirm eliminar ── */}
       {confirm && (
-        <ConfirmModal
-          open
-          title="Eliminar gasto"
-          message={confirm.message}
-          onConfirm={confirm.onConfirm}
-          onCancel={() => setConfirm(null)}
-        />
+        <ConfirmModal open title="Eliminar gasto" message={confirm.message}
+          onConfirm={confirm.onConfirm} onCancel={() => setConfirm(null)} />
       )}
     </div>
   )

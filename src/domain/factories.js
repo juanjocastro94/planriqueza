@@ -322,20 +322,18 @@ export function createInvestment({
   }
 }
 
-export function createAsset({
-  nombre = '',
-  tipo = 'otro',
-  moneda = 'COP',
-} = {}) {
+export function createAsset(data = {}) {
   return {
-    id: createId('asset'),
-    nombre,
-    tipo,
+    id: createId('asset'),   // ← esto falta
+    nombre: data.nombre || '',
+    tipo: data.tipo || 'otro',
+    moneda: data.moneda || 'COP',
+    valorActual: Number(data.valorActual || 0),
+    notas: data.notas || '',
+    deudaVinculadaId: data.deudaVinculadaId || null,
+    fuenteIngresoId:  data.fuenteIngresoId  || null,
     activo: true,
-    moneda,
-    valorActual: 0,
-    crecimientoEsperadoAnualPct: 0,
-    notas: '',
+    createdAt: new Date().toISOString(),
   }
 }
 
@@ -355,3 +353,5 @@ export function createGoal({
     notas: '',
   }
 }
+
+

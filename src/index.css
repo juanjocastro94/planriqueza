@@ -243,3 +243,15 @@ button:disabled {
 /* ── Utility ── */
 .mono { font-family: var(--font-mono); }
 .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Evita el zoom automático de Safari al hacer focus en inputs */
+@supports (-webkit-touch-callout: none) {
+  input[type="text"],
+  input[type="number"],
+  input[type="date"],
+  input[type="month"],
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
