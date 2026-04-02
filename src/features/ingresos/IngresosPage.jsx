@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '../../hooks/useAuth'
 import { useIngresos } from '../../hooks/useIngresos'
 import { useActivos } from '../../hooks/useActivos'
@@ -8,30 +8,21 @@ import {
   createIncomeRecord,
   createIncomeComponent,
 } from '../../domain/factories'
+import { TIPOS_INGRESO, PERIODICIDADES } from '../../domain/types'
 import {
-  TIPOS_INGRESO,
-  PERIODICIDADES,
-} from '../../domain/types'
-import {
-  Card,
-  SectionTitle,
-  Btn,
-  Field,
-  EmptyState,
-  MetricCard,
-  Badge,
+  Card, SectionTitle, Btn, Field, EmptyState, MetricCard, CurrencyInput,
 } from '../../components/UI'
 import { fmt, fmtM } from '../../utils/calc'
 import {
-  Plus,
-  Trash2,
-  Wallet,
-  Receipt,
-  Landmark,
-  Building2,
-  BadgeDollarSign,
+  Plus, Trash2, Wallet, Receipt, Building2, Edit3,
+  CheckCircle2, Clock, ChevronDown, ChevronUp, ArrowUpRight,
+  ArrowDownRight, Minus, X, AlertTriangle,
 } from 'lucide-react'
 import Modal from '../../components/Modal'
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────────────────────
 
 function currentPeriod() {
   const d = new Date()
@@ -42,1007 +33,1121 @@ function todayIso() {
   return new Date().toISOString().slice(0, 10)
 }
 
+function periodLabel(period) {
+  if (!period) return '—'
+  const [y, m] = period.split('-')
+  return new Date(Number(y), Number(m) - 1, 1)
+    .toLocaleDateString('es-CO', { month: 'short', year: 'numeric' })
+}
+
 function getTipoLabel(tipo) {
   const map = {
-    nomina: 'Nómina',
-    prima: 'Prima',
-    bono: 'Bono',
-    cesantias: 'Cesantías',
-    'intereses-cesantias': 'Intereses de cesantías',
-    arriendo: 'Arriendo',
-    honorarios: 'Honorarios',
-    comisiones: 'Comisiones',
-    dividendos: 'Dividendos',
-    intereses: 'Intereses',
-    rendimientos: 'Rendimientos',
-    'devolucion-impuestos': 'Devolución de impuestos',
-    reintegro: 'Reintegro',
-    'venta-activo': 'Venta de activo',
-    otro: 'Otro',
+    nomina: 'Nómina', prima: 'Prima', bono: 'Bono', cesantias: 'Cesantías',
+    'intereses-cesantias': 'Int. cesantías', arriendo: 'Arriendo',
+    honorarios: 'Honorarios', comisiones: 'Comisiones', dividendos: 'Dividendos',
+    intereses: 'Intereses', rendimientos: 'Rendimientos',
+    'devolucion-impuestos': 'Dev. impuestos', reintegro: 'Reintegro',
+    'venta-activo': 'Venta activo', otro: 'Otro',
   }
   return map[tipo] || tipo
 }
 
-function sortRecordsDesc(registros = []) {
-  return [...registros].sort((a, b) => {
-    const aKey = `${a.periodo || ''}_${a.fecha || ''}`
-    const bKey = `${b.periodo || ''}_${b.fecha || ''}`
-    return bKey.localeCompare(aKey)
+function sortRecordsDesc(r = []) {
+  return [...r].sort((a, b) => {
+    const ak = `${a.periodo || ''}_${a.fecha || ''}`
+    const bk = `${b.periodo || ''}_${b.fecha || ''}`
+    return bk.localeCompare(ak)
   })
 }
 
 function sumComponents(components = [], clase) {
   return (components || [])
-    .filter((c) => c?.clase === clase)
-    .reduce((acc, c) => acc + Number(c.monto || 0), 0)
+    .filter(c => c?.clase === clase)
+    .reduce((s, c) => s + Number(c.monto || 0), 0)
 }
 
-function deriveRecordAmounts(record = {}) {
-  const components = record?.components || []
-
-  const totalEarnings = sumComponents(components, 'earning')
-  const totalDeductions = sumComponents(components, 'deduction')
-  const totalAllocations = sumComponents(components, 'allocation')
-
-  const bruto =
-    Number(record.bruto || 0) > 0
-      ? Number(record.bruto || 0)
-      : totalEarnings > 0
-        ? totalEarnings
-        : Number(record.montoPrincipal || 0)
-
-  const neto =
-    Number(record.neto || 0) > 0
-      ? Number(record.neto || 0)
-      : totalEarnings > 0 || totalDeductions > 0 || totalAllocations > 0
-        ? totalEarnings - totalDeductions - totalAllocations
-        : Number(record.montoPrincipal || 0)
-
-  return {
-    bruto,
-    neto,
-    totalEarnings,
-    totalDeductions,
-    totalAllocations,
-  }
+function deriveAmounts(record = {}) {
+  const comps = record?.components || []
+  const earn  = sumComponents(comps, 'earning')
+  const ded   = sumComponents(comps, 'deduction')
+  const alloc = sumComponents(comps, 'allocation')
+  const bruto = Number(record.bruto || 0) > 0
+    ? Number(record.bruto || 0)
+    : earn > 0 ? earn : Number(record.montoPrincipal || 0)
+  const neto = Number(record.neto || 0) > 0
+    ? Number(record.neto || 0)
+    : (earn > 0 || ded > 0 || alloc > 0)
+      ? earn - ded - alloc
+      : Number(record.montoPrincipal || 0)
+  return { bruto, neto, earn, ded, alloc }
 }
 
 function buildEmptySource() {
-  return {
-    nombre: '',
-    tipo: 'nomina',
-    moneda: 'COP',
-    periodicidad: 'mensual',
-  }
+  return { nombre: '', tipo: 'nomina', moneda: 'COP', periodicidad: 'mensual' }
 }
 
 function buildEmptyRecord(tipo = 'nomina') {
   return {
-    tipoIngreso: tipo,
-    subtipoIngreso: '',
-    periodo: currentPeriod(),
-    fecha: todayIso(),
-    montoPrincipal: '',
-    bruto: '',
-    neto: '',
-    nota: '',
-    linkedEntityId: '',
-    payrollDebtLinks: [],
-
+    tipoIngreso: tipo, subtipoIngreso: '', periodo: currentPeriod(),
+    fecha: todayIso(), montoPrincipal: '', bruto: '', neto: '', nota: '',
+    linkedEntityId: '', payrollDebtLinks: [],
     payroll: {
-      salarioBase: '',
-      auxilioTransporte: '',
-      horasExtra: '',
-      recargos: '',
-      comision: '',
-      bonificacion: '',
-      viaticos: '',
-      vacaciones: '',
-      otroDevengado: '',
-
-      salud: '',
-      pension: '',
-      solidaridad: '',
-      retencion: '',
-      libranza: '',
-      embargo: '',
-      descuentoEmpresa: '',
-      otroDescuento: '',
-
-      afc: '',
-      fpv: '',
-      abonoHipoteca: '',
-      aporteInversion: '',
-      ahorroMeta: '',
-      cajaReserva: '',
-      otroDestino: '',
+      salarioBase: '', auxilioTransporte: '', horasExtra: '', recargos: '',
+      comision: '', bonificacion: '', viaticos: '', vacaciones: '', otroDevengado: '',
+      salud: '', pension: '', solidaridad: '', retencion: '',
+      libranza: '', embargo: '', descuentoEmpresa: '', otroDescuento: '',
+      afc: '', fpv: '', abonoHipoteca: '', aporteInversion: '',
+      ahorroMeta: '', cajaReserva: '', otroDestino: '',
     },
-
-    rental: {
-      canon: '',
-      administracion: '',
-      otrosCostos: '',
-    },
+    rental: { canon: '', administracion: '', otrosCostos: '' },
   }
 }
 
-function FuenteCard({ item, selected, onSelect, onRegister }) {
+function mapRecordToForm(record = {}, tipo = 'otro', debtLinks = []) {
+  const base = buildEmptyRecord(tipo)
+  base.tipoIngreso     = record.tipoIngreso || tipo
+  base.periodo         = record.periodo     || currentPeriod()
+  base.fecha           = record.fecha       || todayIso()
+  base.montoPrincipal  = record.montoPrincipal || ''
+  base.bruto           = record.bruto || ''
+  base.neto            = record.neto  || ''
+  base.nota            = record.nota  || ''
+  base.linkedEntityId  = record.linkedEntityId || ''
+
+  if (tipo === 'nomina') {
+    const comps = record.components || []
+    const get = (clase, subtipo) =>
+      String(comps.find(c => c.clase === clase && c.subtipo === subtipo)?.monto || '')
+    base.payroll = {
+      salarioBase:       get('earning',    'salario-base'),
+      auxilioTransporte: get('earning',    'auxilio-transporte'),
+      horasExtra:        get('earning',    'horas-extra'),
+      recargos:          get('earning',    'recargos'),
+      comision:          get('earning',    'comision'),
+      bonificacion:      get('earning',    'bonificacion'),
+      viaticos:          get('earning',    'viaticos'),
+      vacaciones:        get('earning',    'vacaciones'),
+      otroDevengado:     get('earning',    'otro-devengado'),
+      salud:             get('deduction',  'salud'),
+      pension:           get('deduction',  'pension'),
+      solidaridad:       get('deduction',  'solidaridad'),
+      retencion:         get('deduction',  'retencion'),
+      libranza:          get('deduction',  'libranza'),
+      embargo:           get('deduction',  'embargo'),
+      descuentoEmpresa:  get('deduction',  'descuento-empresa'),
+      otroDescuento:     get('deduction',  'otro-descuento'),
+      afc:               get('allocation', 'afc'),
+      fpv:               get('allocation', 'fpv'),
+      abonoHipoteca:     get('allocation', 'abono-hipoteca'),
+      aporteInversion:   get('allocation', 'aporte-inversion'),
+      ahorroMeta:        get('allocation', 'ahorro-meta'),
+      cajaReserva:       get('allocation', 'caja-reserva'),
+      otroDestino:       get('allocation', 'otro-destino'),
+    }
+    base.payrollDebtLinks = debtLinks.map(d => {
+      const linked = comps.find(
+        c => c.clase === 'deduction' && c.linkedEntityType === 'debt' && c.linkedEntityId === d.id
+      )
+      return {
+        debtId: d.id, nombre: d.nombre, enabled: !!linked,
+        monto: Math.round(Number(linked?.monto || d.derived?.pagoTotalMensual || 0)),
+      }
+    })
+  }
+
+  if (tipo === 'arriendo') {
+    const comps = record.components || []
+    base.rental = {
+      canon:          comps.find(c => c.clase === 'earning'    && c.subtipo === 'canon-arriendo')?.monto || '',
+      administracion: comps.find(c => c.clase === 'deduction'  && c.subtipo === 'administracion')?.monto || '',
+      otrosCostos:    comps.find(c => c.clase === 'deduction'  && c.subtipo === 'otro-descuento')?.monto || '',
+    }
+  }
+  return base
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Modal de confirmación (reemplaza window.confirm / window.alert)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function ConfirmModal({ open, title, message, confirmLabel = 'Confirmar', danger = false, onConfirm, onCancel }) {
+  if (!open) return null
   return (
-    <Card
-      style={{
-        padding: '1rem',
-        border: `1px solid ${selected ? 'var(--accent)' : 'var(--border)'}`,
-        background: selected ? 'var(--accent-dim2)' : 'var(--bg-2)',
-      }}
-    >
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
-        <div
-          onClick={() => onSelect(item.id)}
-          style={{ cursor: 'pointer', flex: 1 }}
-        >
-          <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)' }}>{item.nombre || 'Sin nombre'}</div>
-          <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 4 }}>
-            {getTipoLabel(item.tipo)} · {item.periodicidad || '—'}
-          </div>
-        </div>
-
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
-          {!item.activo && <Badge color="default">inactiva</Badge>}
-          {!!item.derived?.latestNeto && <Badge color="green">{fmt(item.derived.latestNeto)}</Badge>}
-        </div>
+    <Modal open={open} onClose={onCancel} title={title} width={420} variant="center">
+      <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', marginBottom: '1.25rem' }}>
+        {danger && <AlertTriangle size={18} color="var(--color-text-danger, #d95c5c)" style={{ flexShrink: 0, marginTop: 1 }} />}
+        <p style={{ fontSize: 14, color: 'var(--color-text-secondary)', lineHeight: 1.6, margin: 0 }}>{message}</p>
       </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
-        <MetricCard label="Último neto" value={fmt(item.derived?.latestNeto || 0)} small />
-        <MetricCard label="Moneda" value={item.moneda || 'COP'} small />
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+        <Btn variant="subtle" onClick={onCancel}>Cancelar</Btn>
+        <Btn variant={danger ? 'danger' : 'accent'} onClick={onConfirm}>{confirmLabel}</Btn>
       </div>
-
-      <div style={{ display: 'flex', gap: 8 }}>
-        <Btn onClick={() => onSelect(item.id)} variant={selected ? 'accent' : 'subtle'}>
-          Ver detalle
-        </Btn>
-        <Btn onClick={() => onRegister(item)} variant="ghost">
-          Registrar ingreso
-        </Btn>
-      </div>
-    </Card>
+    </Modal>
   )
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// TrendIndicator + MiniSparkline
+// ─────────────────────────────────────────────────────────────────────────────
+
+function TrendIndicator({ registros = [] }) {
+  const sorted = sortRecordsDesc(registros).slice(0, 2)
+  if (sorted.length < 2) return null
+  const last = deriveAmounts(sorted[0]).neto
+  const prev = deriveAmounts(sorted[1]).neto
+  if (!prev) return null
+  const diff = last - prev
+  const pct  = Math.round(Math.abs(diff) / prev * 100)
+  if (Math.abs(pct) < 1)
+    return <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)', display: 'flex', alignItems: 'center', gap: 3 }}><Minus size={10} /> Sin cambio</span>
+  const up   = diff > 0
+  const Icon = up ? ArrowUpRight : ArrowDownRight
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, fontWeight: 500, color: up ? '#4a6b10' : '#9b3a3a' }}>
+      <Icon size={12} /> {pct}% vs anterior
+    </span>
+  )
+}
+
+function MiniSparkline({ registros = [] }) {
+  const data = sortRecordsDesc(registros).slice(0, 6).reverse().map(r => deriveAmounts(r).neto)
+  if (data.length < 2) return null
+  const max = Math.max(...data)
+  const min = Math.min(...data)
+  const range = max - min || 1
+  const W = 52, H = 20, pad = 2
+  const pts = data.map((v, i) => {
+    const x = pad + (i / (data.length - 1)) * (W - pad * 2)
+    const y = H - pad - ((v - min) / range) * (H - pad * 2)
+    return `${x},${y}`
+  }).join(' ')
+  const lastPt = pts.split(' ').at(-1).split(',')
+  return (
+    <svg width={W} height={H} style={{ display: 'block', flexShrink: 0 }}>
+      <polyline points={pts} fill="none" stroke="#b7de4a" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx={lastPt[0]} cy={lastPt[1]} r="2.5" fill="#b7de4a" />
+    </svg>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FuenteCard — tarjeta compacta en el grid
+// ─────────────────────────────────────────────────────────────────────────────
+
+function FuenteCard({ item, period, onClick }) {
+  const latest    = sortRecordsDesc(item.registros || [])[0] || null
+  const amounts   = latest ? deriveAmounts(latest) : null
+  const hasRecord = (item.registros || []).some(r => r.periodo === period)
+
+  const statusColor  = hasRecord ? '#4a6b10'       : '#9b6c1f'
+  const statusBg     = hasRecord ? 'rgba(183,222,74,.14)' : 'rgba(216,162,72,.12)'
+  const StatusIcon   = hasRecord ? CheckCircle2 : Clock
+  const statusLabel  = hasRecord ? `Registrado · ${periodLabel(period)}` : `Pendiente · ${periodLabel(period)}`
+
+  return (
+    <button
+  onClick={onClick}
+  style={{
+    all: 'unset', display: 'block', cursor: 'pointer', width: '100%',
+    background: 'var(--bg-2)',
+    border: '1px solid var(--border-3)',
+    borderRadius: 'var(--radius-xl)',
+    padding: '1rem 1.1rem',
+    boxShadow: 'var(--shadow-sm)',
+    transition: 'border-color .15s, box-shadow .15s, transform .12s',
+    boxSizing: 'border-box',
+    textAlign: 'left',
+  }}
+  onMouseEnter={e => {
+    e.currentTarget.style.borderColor = 'var(--accent)'
+    e.currentTarget.style.boxShadow = '0 4px 16px rgba(28,35,24,0.09), 0 0 0 3px rgba(183,222,74,.15)'
+    e.currentTarget.style.transform = 'translateY(-1px)'
+  }}
+  onMouseLeave={e => {
+    e.currentTarget.style.borderColor = 'var(--border-2)'
+    e.currentTarget.style.boxShadow = 'var(--shadow-sm)'
+    e.currentTarget.style.transform = 'translateY(0)'
+  }}
+>
+      {/* Fila 1: nombre + estado */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--color-text-primary)', marginBottom: 2 }}>{item.nombre}</div>
+          <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>{getTipoLabel(item.tipo)} · {item.periodicidad || '—'}</div>
+        </div>
+        <span style={{
+          display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 600,
+          color: statusColor, background: statusBg, padding: '3px 9px', borderRadius: 999,
+        }}>
+          <StatusIcon size={11} /> {statusLabel}
+        </span>
+      </div>
+
+      {/* Fila 2: neto + sparkline + trend */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div>
+          <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginBottom: 2, textTransform: 'uppercase', letterSpacing: '.06em', fontWeight: 500 }}>Último neto</div>
+          <div style={{ fontSize: 20, fontWeight: 500, fontFamily: 'var(--font-mono)', color: 'var(--color-text-primary)', lineHeight: 1.2 }}>
+            {amounts ? fmt(amounts.neto) : '—'}
+          </div>
+          {amounts && amounts.bruto !== amounts.neto && (
+            <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginTop: 2 }}>bruto {fmt(amounts.bruto)}</div>
+          )}
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
+          <MiniSparkline registros={item.registros} />
+          <TrendIndicator registros={item.registros} />
+        </div>
+      </div>
+    </button>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Drawer de detalle de fuente
+// ─────────────────────────────────────────────────────────────────────────────
+
+function FuenteDrawer({ fuente, period, open, onClose, onRegister, onEditRecord, onEdit, onToggle, onRemove, onRemoveRecord }) {
+  if (!fuente) return null
+  const sorted  = sortRecordsDesc(fuente.registros || [])
+  const latest  = sorted[0] || null
+  const amounts = latest ? deriveAmounts(latest) : null
+
+  return (
+    <Modal open={open} onClose={onClose} title={fuente.nombre} width={720} variant="drawer">
+      {/* Métricas clave */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: '1.25rem' }}>
+        <MetricCard label="Último período"    value={latest?.periodo || '—'} />
+        <MetricCard label="Último bruto"      value={fmt(amounts?.bruto || 0)} />
+        <MetricCard label="Último neto"       value={fmt(amounts?.neto || 0)} color="var(--color-text-success)" />
+        <MetricCard label="Deducciones + dest." value={fmt((amounts?.ded || 0) + (amounts?.alloc || 0))} />
+      </div>
+
+      {/* Acciones principales */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: '1.25rem', flexWrap: 'wrap' }}>
+        <Btn variant="accent" onClick={() => onRegister(fuente)} style={{ padding: '7px 14px' }}>
+          <Plus size={13} /> Registrar {periodLabel(period)}
+        </Btn>
+        <Btn variant="ghost" onClick={() => onEdit(fuente)} style={{ padding: '7px 12px' }}>
+          <Edit3 size={13} /> Editar fuente
+        </Btn>
+        <Btn variant="ghost" onClick={() => onToggle(fuente)} style={{ padding: '7px 12px' }}>
+          {fuente.activo !== false ? 'Desactivar' : 'Activar'}
+        </Btn>
+        <Btn variant="danger" onClick={() => onRemove(fuente)} style={{ padding: '7px 10px', marginLeft: 'auto' }}>
+          <Trash2 size={13} />
+        </Btn>
+      </div>
+
+      {/* Histórico */}
+      {!sorted.length ? (
+        <div style={{ padding: '2rem 0', textAlign: 'center', fontSize: 13, color: 'var(--color-text-tertiary)' }}>
+          Sin registros todavía. Usa el botón Registrar para añadir el primero.
+        </div>
+      ) : (
+        <div>
+          {/* Header tabla */}
+          <div style={{ display: 'flex', gap: 0, marginBottom: 6, fontSize: 11, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '.06em', fontWeight: 500 }}>
+  <span style={{ width: 90, flexShrink: 0 }}>Período</span>
+  <span style={{ flex: 1 }}>Bruto</span>
+  <span style={{ flex: 1 }}>Neto</span>
+  <span style={{ width: 100, flexShrink: 0 }}>Tipo</span>
+  <span style={{ width: 64, flexShrink: 0 }} />
+</div>
+
+
+          {sorted.map(r => {
+  const a   = deriveAmounts(r)
+  const cur = r.periodo === period
+  return (
+    <div
+      key={r.id}
+      style={{
+        display: 'flex', alignItems: 'center',
+        padding: '9px 0',
+        borderBottom: '1px solid var(--border)',
+        background: cur ? 'rgba(183,222,74,.04)' : 'transparent',
+        gap: 0,
+      }}
+      onMouseEnter={e => e.currentTarget.querySelector('.row-actions').style.opacity = '1'}
+      onMouseLeave={e => e.currentTarget.querySelector('.row-actions').style.opacity = '0'}
+    >
+      {/* Período */}
+      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, width: 90, flexShrink: 0, display: 'flex', alignItems: 'center', gap: 5 }}>
+        {r.periodo || '—'}
+        {cur && <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--accent)', display: 'inline-block' }} />}
+      </span>
+      {/* Bruto */}
+      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, flex: 1 }}>{fmt(a.bruto)}</span>
+      {/* Neto */}
+      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, flex: 1, color: '#4a6b10', fontWeight: 500 }}>{fmt(a.neto)}</span>
+      {/* Tipo */}
+      <span style={{ fontSize: 12, color: 'var(--text-3)', width: 100, flexShrink: 0 }}>{getTipoLabel(r.tipoIngreso || fuente.tipo)}</span>
+      {/* Acciones — visibles solo en hover */}
+      <div
+        className="row-actions"
+        style={{ display: 'flex', gap: 4, opacity: 0, transition: 'opacity .15s', flexShrink: 0 }}
+      >
+        <button
+          onClick={() => onEditRecord(r, fuente)}
+          title="Editar registro"
+          style={{ background: 'var(--bg-3)', border: '1px solid var(--border)', borderRadius: 6, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', width: 28, height: 28 }}
+        >
+          <Edit3 size={13} color="var(--text-2)" />
+        </button>
+        <button
+          onClick={() => onRemoveRecord(r, fuente)}
+          title="Eliminar registro"
+          style={{ background: 'transparent', border: '1px solid transparent', borderRadius: 6, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', width: 28, height: 28 }}
+        >
+          <Trash2 size={13} color="var(--red)" />
+        </button>
+      </div>
+    </div>
+  )
+})}
+        </div>
+      )}
+    </Modal>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Formularios de registro
+// ─────────────────────────────────────────────────────────────────────────────
+
 function SimpleIncomeForm({ record, setRecord }) {
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
-      <Field label="Período">
-        <input
-          type="month"
-          value={record.periodo}
-          onChange={(e) => setRecord((p) => ({ ...p, periodo: e.target.value }))}
-        />
-      </Field>
-
-      <Field label="Fecha">
-        <input
-          type="date"
-          value={record.fecha}
-          onChange={(e) => setRecord((p) => ({ ...p, fecha: e.target.value }))}
-        />
-      </Field>
-
-      <Field label="Monto principal">
-        <input
-          type="number"
-          value={record.montoPrincipal}
-          onChange={(e) => setRecord((p) => ({ ...p, montoPrincipal: e.target.value }))}
-        />
-      </Field>
-
-      <Field label="Neto opcional">
-        <input
-          type="number"
-          value={record.neto}
-          onChange={(e) => setRecord((p) => ({ ...p, neto: e.target.value }))}
-        />
-      </Field>
-
-      <div style={{ gridColumn: '1 / -1' }}>
-        <Field label="Nota">
-          <input
-            type="text"
-            value={record.nota}
-            onChange={(e) => setRecord((p) => ({ ...p, nota: e.target.value }))}
-            placeholder="Ej. bono trimestral, prima junio, dividendo abril"
-          />
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+        <Field label="Período">
+          <input type="month" value={record.periodo}
+            onChange={e => setRecord(p => ({ ...p, periodo: e.target.value }))} />
+        </Field>
+        <Field label="Fecha">
+          <input type="date" value={record.fecha}
+            onChange={e => setRecord(p => ({ ...p, fecha: e.target.value }))} />
         </Field>
       </div>
+      <Field label="¿Cuánto recibiste?">
+        <CurrencyInput value={record.montoPrincipal} placeholder="0"
+          onChange={v => setRecord(p => ({ ...p, montoPrincipal: v }))} />
+      </Field>
+      <Field label="Nota (opcional)">
+        <input type="text" value={record.nota}
+          placeholder="Ej. bono trimestral, dividendo abril"
+          onChange={e => setRecord(p => ({ ...p, nota: e.target.value }))} />
+      </Field>
     </div>
   )
 }
 
 function RentalIncomeForm({ record, setRecord, inmuebleOptions }) {
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
-      <Field label="Inmueble vinculado">
-        <select
-          value={record.linkedEntityId}
-          onChange={(e) => setRecord((p) => ({ ...p, linkedEntityId: e.target.value }))}
-        >
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10 }}>
+      <Field label="Inmueble">
+        <select value={record.linkedEntityId}
+          onChange={e => setRecord(p => ({ ...p, linkedEntityId: e.target.value }))}>
           <option value="">Selecciona inmueble</option>
-          {inmuebleOptions.map((a) => (
-            <option key={a.id} value={a.id}>
-              {a.nombre}
-            </option>
-          ))}
+          {inmuebleOptions.map(a => <option key={a.id} value={a.id}>{a.nombre}</option>)}
         </select>
       </Field>
-
       <Field label="Período">
-        <input
-          type="month"
-          value={record.periodo}
-          onChange={(e) => setRecord((p) => ({ ...p, periodo: e.target.value }))}
-        />
+        <input type="month" value={record.periodo}
+          onChange={e => setRecord(p => ({ ...p, periodo: e.target.value }))} />
       </Field>
-
-      <Field label="Fecha">
-        <input
-          type="date"
-          value={record.fecha}
-          onChange={(e) => setRecord((p) => ({ ...p, fecha: e.target.value }))}
-        />
+      <Field label="Canon mensual">
+        <CurrencyInput value={Number(record.rental.canon || 0)}
+          onChange={v => setRecord(p => ({ ...p, rental: { ...p.rental, canon: v } }))} />
       </Field>
-
-      <Field label="Canon">
-        <input
-          type="number"
-          value={record.rental.canon}
-          onChange={(e) =>
-            setRecord((p) => ({
-              ...p,
-              rental: { ...p.rental, canon: e.target.value },
-            }))
-          }
-        />
-      </Field>
-
       <Field label="Administración">
-        <input
-          type="number"
-          value={record.rental.administracion}
-          onChange={(e) =>
-            setRecord((p) => ({
-              ...p,
-              rental: { ...p.rental, administracion: e.target.value },
-            }))
-          }
-        />
+        <CurrencyInput value={Number(record.rental.administracion || 0)}
+          onChange={v => setRecord(p => ({ ...p, rental: { ...p.rental, administracion: v } }))} />
       </Field>
-
       <Field label="Otros costos">
-        <input
-          type="number"
-          value={record.rental.otrosCostos}
-          onChange={(e) =>
-            setRecord((p) => ({
-              ...p,
-              rental: { ...p.rental, otrosCostos: e.target.value },
-            }))
-          }
-        />
+        <CurrencyInput value={Number(record.rental.otrosCostos || 0)}
+          onChange={v => setRecord(p => ({ ...p, rental: { ...p.rental, otrosCostos: v } }))} />
       </Field>
-
-      <Field label="Neto opcional">
-        <input
-          type="number"
-          value={record.neto}
-          onChange={(e) => setRecord((p) => ({ ...p, neto: e.target.value }))}
-        />
-      </Field>
-
       <div style={{ gridColumn: '1 / -1' }}>
         <Field label="Nota">
-          <input
-            type="text"
-            value={record.nota}
-            onChange={(e) => setRecord((p) => ({ ...p, nota: e.target.value }))}
-            placeholder="Ej. canon abril apto 409"
-          />
+          <input type="text" value={record.nota}
+            onChange={e => setRecord(p => ({ ...p, nota: e.target.value }))} />
         </Field>
       </div>
     </div>
   )
 }
 
-function PayrollIncomeForm({ record, setRecord, payrollLinkedDebts = [] }) {
-  const p = record.payroll || {}
+// ── Nómina ────────────────────────────────────────────────────────────────────
 
-  const setPayroll = (field, value) =>
-    setRecord((prev) => ({
-      ...prev,
-      payroll: {
-        ...prev.payroll,
-        [field]: value,
-      },
-    }))
+function PayrollSection({ title, fields, p, setPayroll, defaultOpen = false }) {
+  const [open, setOpen] = useState(defaultOpen)
+  const filled = fields.filter(f => Number(p[f.key] || 0) > 0).length
+  return (
+    <div style={{ border: '1px solid var(--color-border-tertiary)', borderRadius: 12, overflow: 'hidden', marginBottom: 8 }}>
+      <button type="button" onClick={() => setOpen(v => !v)} style={{
+        width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        padding: '11px 14px', background: 'var(--color-background-tertiary)',
+        border: 'none', cursor: 'pointer', fontFamily: 'var(--font-sans)',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--color-text-primary)' }}>{title}</span>
+          {filled > 0 && (
+            <span style={{ fontSize: 11, padding: '1px 7px', borderRadius: 999, background: 'rgba(183,222,74,.18)', color: '#4a6b10', fontWeight: 500 }}>
+              {filled} completado{filled > 1 ? 's' : ''}
+            </span>
+          )}
+        </div>
+        {open ? <ChevronUp size={14} color="var(--color-text-tertiary)" /> : <ChevronDown size={14} color="var(--color-text-tertiary)" />}
+      </button>
+      {open && (
+        <div style={{ padding: '12px 14px', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
+          {fields.map(f => (
+            <Field key={f.key} label={f.label}>
+              <CurrencyInput value={Number(p[f.key] || 0)} onChange={v => setPayroll(f.key, v)} placeholder="0" />
+            </Field>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function PayrollLiveSummary({ record }) {
+  const p = record.payroll || {}
+  const n = k => Number(p[k] || 0)
+  const earn  = n('salarioBase') + n('auxilioTransporte') + n('horasExtra') + n('recargos') +
+                n('comision') + n('bonificacion') + n('viaticos') + n('vacaciones') + n('otroDevengado')
+  const ded   = n('salud') + n('pension') + n('solidaridad') + n('retencion') +
+                n('libranza') + n('embargo') + n('descuentoEmpresa') + n('otroDescuento') +
+                (record.payrollDebtLinks || []).filter(d => d.enabled).reduce((s, d) => s + Number(d.monto || 0), 0)
+  const alloc = n('afc') + n('fpv') + n('abonoHipoteca') + n('aporteInversion') +
+                n('ahorroMeta') + n('cajaReserva') + n('otroDestino')
+  const brutoManual = Number(record.bruto || 0)
+  const netoManual  = Number(record.neto  || 0)
+  const bruto = brutoManual > 0 ? brutoManual : earn
+  const neto  = netoManual  > 0 ? netoManual  : bruto - ded - alloc
+  const netoInvalid = neto > bruto && bruto > 0
+  if (!bruto && !earn) return null
 
   return (
-    <div style={{ display: 'grid', gap: 14 }}>
-      <Card style={{ padding: '1rem' }}>
-        <SectionTitle>Encabezado</SectionTitle>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
-          <Field label="Período">
-            <input
-              type="month"
-              value={record.periodo}
-              onChange={(e) => setRecord((prev) => ({ ...prev, periodo: e.target.value }))}
-            />
-          </Field>
-
-          <Field label="Fecha pago">
-            <input
-              type="date"
-              value={record.fecha}
-              onChange={(e) => setRecord((prev) => ({ ...prev, fecha: e.target.value }))}
-            />
-          </Field>
-
-          <Field label="Bruto opcional">
-            <input
-              type="number"
-              value={record.bruto}
-              onChange={(e) => setRecord((prev) => ({ ...prev, bruto: e.target.value }))}
-            />
-          </Field>
-
-          <Field label="Neto opcional">
-            <input
-              type="number"
-              value={record.neto}
-              onChange={(e) => setRecord((prev) => ({ ...prev, neto: e.target.value }))}
-            />
-          </Field>
-        </div>
-      </Card>
-
-      <Card style={{ padding: '1rem' }}>
-        <SectionTitle>Devengados</SectionTitle>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
-          <Field label="Salario base"><input type="number" value={p.salarioBase} onChange={(e) => setPayroll('salarioBase', e.target.value)} /></Field>
-          <Field label="Auxilio transporte"><input type="number" value={p.auxilioTransporte} onChange={(e) => setPayroll('auxilioTransporte', e.target.value)} /></Field>
-          <Field label="Horas extra"><input type="number" value={p.horasExtra} onChange={(e) => setPayroll('horasExtra', e.target.value)} /></Field>
-          <Field label="Recargos"><input type="number" value={p.recargos} onChange={(e) => setPayroll('recargos', e.target.value)} /></Field>
-          <Field label="Comisión"><input type="number" value={p.comision} onChange={(e) => setPayroll('comision', e.target.value)} /></Field>
-          <Field label="Bonificación"><input type="number" value={p.bonificacion} onChange={(e) => setPayroll('bonificacion', e.target.value)} /></Field>
-          <Field label="Viáticos"><input type="number" value={p.viaticos} onChange={(e) => setPayroll('viaticos', e.target.value)} /></Field>
-          <Field label="Vacaciones"><input type="number" value={p.vacaciones} onChange={(e) => setPayroll('vacaciones', e.target.value)} /></Field>
-          <Field label="Otro devengado"><input type="number" value={p.otroDevengado} onChange={(e) => setPayroll('otroDevengado', e.target.value)} /></Field>
-        </div>
-      </Card>
-
-      <Card style={{ padding: '1rem' }}>
-        <SectionTitle>Deducciones</SectionTitle>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
-          <Field label="Salud"><input type="number" value={p.salud} onChange={(e) => setPayroll('salud', e.target.value)} /></Field>
-          <Field label="Pensión"><input type="number" value={p.pension} onChange={(e) => setPayroll('pension', e.target.value)} /></Field>
-          <Field label="Solidaridad"><input type="number" value={p.solidaridad} onChange={(e) => setPayroll('solidaridad', e.target.value)} /></Field>
-          <Field label="Retención"><input type="number" value={p.retencion} onChange={(e) => setPayroll('retencion', e.target.value)} /></Field>
-          <Field label="Libranza"><input type="number" value={p.libranza} onChange={(e) => setPayroll('libranza', e.target.value)} /></Field>
-          <Field label="Embargo"><input type="number" value={p.embargo} onChange={(e) => setPayroll('embargo', e.target.value)} /></Field>
-          <Field label="Descuento empresa"><input type="number" value={p.descuentoEmpresa} onChange={(e) => setPayroll('descuentoEmpresa', e.target.value)} /></Field>
-          <Field label="Otro descuento"><input type="number" value={p.otroDescuento} onChange={(e) => setPayroll('otroDescuento', e.target.value)} /></Field>
-        </div>
-      </Card>
-
-      <Card style={{ padding: '1rem' }}>
-        <SectionTitle>Destinaciones</SectionTitle>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
-          <Field label="AFC"><input type="number" value={p.afc} onChange={(e) => setPayroll('afc', e.target.value)} /></Field>
-          <Field label="FPV"><input type="number" value={p.fpv} onChange={(e) => setPayroll('fpv', e.target.value)} /></Field>
-          <Field label="Abono hipoteca"><input type="number" value={p.abonoHipoteca} onChange={(e) => setPayroll('abonoHipoteca', e.target.value)} /></Field>
-          <Field label="Aporte inversión"><input type="number" value={p.aporteInversion} onChange={(e) => setPayroll('aporteInversion', e.target.value)} /></Field>
-          <Field label="Ahorro meta"><input type="number" value={p.ahorroMeta} onChange={(e) => setPayroll('ahorroMeta', e.target.value)} /></Field>
-          <Field label="Caja reserva"><input type="number" value={p.cajaReserva} onChange={(e) => setPayroll('cajaReserva', e.target.value)} /></Field>
-          <Field label="Otro destino"><input type="number" value={p.otroDestino} onChange={(e) => setPayroll('otroDestino', e.target.value)} /></Field>
-        </div>
-      </Card>
-
-      <Card style={{ padding: '1rem' }}>
-        <SectionTitle>Deudas descontadas por nómina</SectionTitle>
-
-        {!payrollLinkedDebts.length ? (
-          <div style={{ fontSize: 12, color: 'var(--text-3)' }}>
-            No hay deudas marcadas como descontadas por nómina.
+    <div style={{
+      background: netoInvalid ? 'rgba(217,92,92,.08)' : 'var(--color-background-tertiary)',
+      border: netoInvalid ? '1px solid rgba(217,92,92,.25)' : '1px solid var(--color-border-tertiary)',
+      borderRadius: 12, padding: '12px 14px', marginBottom: 12,
+    }}>
+      <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '.06em', fontWeight: 500 }}>
+        Resumen en vivo
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
+        {[
+          { label: 'Lo que ganaste',  value: earn || bruto, color: 'var(--color-text-primary)' },
+          { label: 'Te descontaron',  value: ded,           color: '#b54545' },
+          { label: 'Apartaste',       value: alloc,         color: '#416fc8' },
+          { label: 'Neto estimado',   value: neto,          color: netoInvalid ? '#b54545' : '#4a6b10' },
+        ].map(item => (
+          <div key={item.label}>
+            <div style={{ fontSize: 10, color: 'var(--color-text-tertiary)', marginBottom: 2, textTransform: 'uppercase', letterSpacing: '.06em' }}>{item.label}</div>
+            <div style={{ fontSize: 14, fontWeight: 500, fontFamily: 'var(--font-mono)', color: item.color }}>{fmt(item.value)}</div>
           </div>
-        ) : (
-          <div style={{ display: 'grid', gap: 10 }}>
-            {payrollLinkedDebts.map((item, index) => (
-              <div
-                key={item.debtId}
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'auto 1fr 160px',
-                  gap: 10,
-                  alignItems: 'center',
-                  padding: '8px 0',
-                  borderBottom: '1px solid var(--border)',
-                }}
-              >
-                <input
-                  type="checkbox"
-                  checked={!!item.enabled}
-                  onChange={(e) =>
-                    setRecord((prev) => {
-                      const next = [...(prev.payrollDebtLinks || [])]
-                      next[index] = { ...next[index], enabled: e.target.checked }
-                      return { ...prev, payrollDebtLinks: next }
-                    })
-                  }
-                />
+        ))}
+      </div>
+      {netoInvalid && (
+        <div style={{ marginTop: 8, fontSize: 12, color: '#b54545' }}>
+          El neto estimado supera el bruto — revisa los valores ingresados.
+        </div>
+      )}
+    </div>
+  )
+}
 
+function PayrollIncomeForm({ record, setRecord, payrollLinkedDebts = [], lastRecord = null }) {
+  const p = record.payroll || {}
+  const setPayroll = (field, value) =>
+    setRecord(prev => ({ ...prev, payroll: { ...prev.payroll, [field]: value } }))
+
+  const copyFromLast = () => {
+    if (!lastRecord) return
+    const comps = lastRecord.components || []
+    const get = (clase, subtipo) => {
+      const found = comps.find(c => c.clase === clase && c.subtipo === subtipo)
+      return found ? Number(found.monto || 0) : 0
+    }
+    setRecord(prev => ({
+      ...prev,
+      bruto: Number(lastRecord.bruto || 0),
+      neto:  Number(lastRecord.neto  || 0),
+      payroll: {
+        salarioBase:       get('earning',    'salario-base'),
+        auxilioTransporte: get('earning',    'auxilio-transporte'),
+        horasExtra:        get('earning',    'horas-extra'),
+        recargos:          get('earning',    'recargos'),
+        comision:          get('earning',    'comision'),
+        bonificacion:      get('earning',    'bonificacion'),
+        viaticos:          get('earning',    'viaticos'),
+        vacaciones:        get('earning',    'vacaciones'),
+        otroDevengado:     get('earning',    'otro-devengado'),
+        salud:             get('deduction',  'salud'),
+        pension:           get('deduction',  'pension'),
+        solidaridad:       get('deduction',  'solidaridad'),
+        retencion:         get('deduction',  'retencion'),
+        libranza:          get('deduction',  'libranza'),
+        embargo:           get('deduction',  'embargo'),
+        descuentoEmpresa:  get('deduction',  'descuento-empresa'),
+        otroDescuento:     get('deduction',  'otro-descuento'),
+        afc:               get('allocation', 'afc'),
+        fpv:               get('allocation', 'fpv'),
+        abonoHipoteca:     get('allocation', 'abono-hipoteca'),
+        aporteInversion:   get('allocation', 'aporte-inversion'),
+        ahorroMeta:        get('allocation', 'ahorro-meta'),
+        cajaReserva:       get('allocation', 'caja-reserva'),
+        otroDestino:       get('allocation', 'otro-destino'),
+      },
+    }))
+  }
+
+  const brutoActual = Number(record.bruto || 0)
+  const mismoValor  = lastRecord && Number(lastRecord.bruto || 0) > 0 && brutoActual === Number(lastRecord.bruto || 0)
+
+  return (
+    <div>
+      {/* Encabezado: período + copiar mes anterior */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 14, gap: 10, flexWrap: 'wrap' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '160px 160px', gap: 10 }}>
+          <Field label="Período">
+            <input type="month" value={record.periodo}
+              onChange={e => setRecord(p => ({ ...p, periodo: e.target.value }))} />
+          </Field>
+          <Field label="Fecha de pago">
+            <input type="date" value={record.fecha}
+              onChange={e => setRecord(p => ({ ...p, fecha: e.target.value }))} />
+          </Field>
+        </div>
+        {lastRecord && (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+            <Btn variant="ghost" onClick={copyFromLast} style={{ padding: '7px 12px', fontSize: 12 }}>
+              Copiar mes anterior
+            </Btn>
+            {mismoValor && <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>Igual al último registro</span>}
+          </div>
+        )}
+      </div>
+
+      {/* Bruto / neto manuales */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 14 }}>
+        <Field label="Bruto total (opcional — se calcula si llenas abajo)">
+          <CurrencyInput value={Number(record.bruto || 0)} placeholder="calculado automático"
+            onChange={v => setRecord(p => ({ ...p, bruto: v }))} />
+        </Field>
+        <Field label="Neto recibido (opcional — se calcula si llenas abajo)">
+          <CurrencyInput value={Number(record.neto || 0)} placeholder="calculado automático"
+            onChange={v => setRecord(p => ({ ...p, neto: v }))} />
+        </Field>
+      </div>
+
+      <PayrollLiveSummary record={record} />
+
+      <PayrollSection title="Lo que ganaste (devengados)" defaultOpen p={p} setPayroll={setPayroll}
+        fields={[
+          { key: 'salarioBase',       label: 'Salario base' },
+          { key: 'auxilioTransporte', label: 'Aux. transporte' },
+          { key: 'horasExtra',        label: 'Horas extra' },
+          { key: 'recargos',          label: 'Recargos' },
+          { key: 'comision',          label: 'Comisión' },
+          { key: 'bonificacion',      label: 'Bonificación' },
+          { key: 'viaticos',          label: 'Viáticos' },
+          { key: 'vacaciones',        label: 'Vacaciones' },
+          { key: 'otroDevengado',     label: 'Otro' },
+        ]}
+      />
+      <PayrollSection title="Lo que te descontaron (deducciones)" defaultOpen p={p} setPayroll={setPayroll}
+        fields={[
+          { key: 'salud',            label: 'Salud' },
+          { key: 'pension',          label: 'Pensión' },
+          { key: 'solidaridad',      label: 'Solidaridad' },
+          { key: 'retencion',        label: 'Retención' },
+          { key: 'libranza',         label: 'Libranza' },
+          { key: 'embargo',          label: 'Embargo' },
+          { key: 'descuentoEmpresa', label: 'Desc. empresa' },
+          { key: 'otroDescuento',    label: 'Otro descuento' },
+        ]}
+      />
+      <PayrollSection title="Lo que apartaste voluntariamente" p={p} setPayroll={setPayroll}
+        fields={[
+          { key: 'afc',             label: 'AFC' },
+          { key: 'fpv',             label: 'FPV' },
+          { key: 'abonoHipoteca',   label: 'Abono hipoteca' },
+          { key: 'aporteInversion', label: 'Aporte inversión' },
+          { key: 'ahorroMeta',      label: 'Ahorro meta' },
+          { key: 'cajaReserva',     label: 'Caja reserva' },
+          { key: 'otroDestino',     label: 'Otro destino' },
+        ]}
+      />
+
+      {/* Deudas descontadas por nómina */}
+      {payrollLinkedDebts.length > 0 && (
+        <div style={{ border: '1px solid var(--color-border-tertiary)', borderRadius: 12, overflow: 'hidden', marginBottom: 8 }}>
+          <div style={{ padding: '11px 14px', background: 'var(--color-background-tertiary)' }}>
+            <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--color-text-primary)' }}>
+              Cuotas descontadas por nómina
+            </span>
+          </div>
+          <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {payrollLinkedDebts.map((item, idx) => (
+              <div key={item.debtId} style={{ display: 'grid', gridTemplateColumns: 'auto 1fr 160px', gap: 10, alignItems: 'center' }}>
+                <input type="checkbox" checked={!!item.enabled}
+                  onChange={e => setRecord(prev => {
+                    const next = [...(prev.payrollDebtLinks || [])]
+                    next[idx] = { ...next[idx], enabled: e.target.checked }
+                    return { ...prev, payrollDebtLinks: next }
+                  })} />
                 <div>
-                  <div style={{ fontSize: 13, color: 'var(--text)', fontWeight: 600 }}>{item.nombre}</div>
-                  <div style={{ fontSize: 11, color: 'var(--text-3)' }}>
-                    Sugerido desde pago mensual total de la deuda
-                  </div>
+                  <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--color-text-primary)' }}>{item.nombre}</div>
+                  <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>Pago mensual del crédito</div>
                 </div>
-
                 <Field label="Monto">
-                  <input
-                    type="number"
-                    value={item.monto}
-                    onChange={(e) =>
-                      setRecord((prev) => {
-                        const next = [...(prev.payrollDebtLinks || [])]
-                        next[index] = { ...next[index], monto: e.target.value }
-                        return { ...prev, payrollDebtLinks: next }
-                      })
-                    }
-                  />
+                  <CurrencyInput value={Number(item.monto || 0)}
+                    onChange={v => setRecord(prev => {
+                      const next = [...(prev.payrollDebtLinks || [])]
+                      next[idx] = { ...next[idx], monto: v }
+                      return { ...prev, payrollDebtLinks: next }
+                    })} />
                 </Field>
               </div>
             ))}
           </div>
-        )}
-      </Card>
+        </div>
+      )}
 
       <Field label="Nota">
-        <input
-          type="text"
-          value={record.nota}
-          onChange={(e) => setRecord((prev) => ({ ...prev, nota: e.target.value }))}
-          placeholder="Ej. desprendible abril"
-        />
+        <input type="text" value={record.nota} placeholder="Ej. desprendible abril"
+          onChange={e => setRecord(p => ({ ...p, nota: e.target.value }))} />
       </Field>
     </div>
   )
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Page principal
+// ─────────────────────────────────────────────────────────────────────────────
 
 export default function IngresosPage() {
   const { user } = useAuth()
   const uid = user?.uid || null
 
   const {
-    loading,
-    fuentes,
-    metrics,
-    createFuente,
-    updateFuente,
-    deleteFuente,
-    createRegistro,
-    deleteRegistro,
+    loading, fuentes, metrics,
+    createFuente, updateFuente, deleteFuente,
+    createRegistro, updateRegistro, deleteRegistro,
   } = useIngresos(uid, { selectedPeriod: currentPeriod() })
 
   const { items: activos } = useActivos(uid)
-  const { items: deudas } = useDeudas(uid)
+  const { items: deudas }  = useDeudas(uid)
 
-  const inmuebleOptions = useMemo(
-    () => (activos || []).filter((a) => a.tipo === 'inmueble' && a.activo !== false),
-    [activos]
+  const period = currentPeriod()
+
+  const inmuebleOptions    = useMemo(() => (activos || []).filter(a => a.tipo === 'inmueble' && a.activo !== false), [activos])
+  const payrollLinkedDebts = useMemo(() => (deudas  || []).filter(d => d?.condiciones?.descontadoNomina), [deudas])
+
+  // ── Estado modal ──────────────────────────────────────────────────────────
+  const [drawerFuente,         setDrawerFuente]         = useState(null)   // fuente en el drawer de detalle
+  const [isSourceModalOpen,    setIsSourceModalOpen]    = useState(false)
+  const [isEditSourceModalOpen,setIsEditSourceModalOpen]= useState(false)
+  const [isRecordModalOpen,    setIsRecordModalOpen]    = useState(false)
+  const [confirmState,         setConfirmState]         = useState(null)   // { title, message, onConfirm, danger }
+
+  const [newSource,       setNewSource]       = useState(buildEmptySource())
+  const [editSource,      setEditSource]      = useState(null)
+  const [recordDraft,     setRecordDraft]     = useState(buildEmptyRecord('nomina'))
+  const [editingRecordId, setEditingRecordId] = useState(null)
+  const [editingSourceId, setEditingSourceId] = useState(null)
+
+  // ── Helpers ────────────────────────────────────────────────────────────────
+  const makePayrollDebtLinks = () => payrollLinkedDebts.map(d => ({
+    debtId: d.id, nombre: d.nombre, enabled: true,
+    monto: Math.round(Number(d.derived?.pagoTotalMensual || 0)),
+  }))
+
+  // Drawer: siempre mostramos la versión más fresca de la fuente desde fuentes[]
+  const drawerFuenteVivo = useMemo(
+    () => fuentes.find(f => f.id === drawerFuente?.id) || drawerFuente,
+    [fuentes, drawerFuente]
   )
 
-  const payrollLinkedDebts = useMemo(() => {
-    return (deudas || []).filter((d) => d?.condiciones?.descontadoNomina)
-  }, [deudas])
+  const pendingCount = fuentes.filter(f => f.activo !== false && !(f.registros || []).some(r => r.periodo === period)).length
+  const doneCount    = fuentes.filter(f => f.activo !== false &&  (f.registros || []).some(r => r.periodo === period)).length
 
-  const [selectedId, setSelectedId] = useState(null)
-  const [newSource, setNewSource] = useState(buildEmptySource())
-  const [newRecord, setNewRecord] = useState(buildEmptyRecord('nomina'))
-
-  const [isSourceModalOpen, setIsSourceModalOpen] = useState(false)
-  const [isRecordModalOpen, setIsRecordModalOpen] = useState(false)
-
-  const selected = useMemo(
-    () => fuentes.find((f) => f.id === selectedId) || fuentes[0] || null,
-    [fuentes, selectedId]
-  )
-
-  React.useEffect(() => {
-    const next = buildEmptyRecord(selected?.tipo || 'nomina')
-
-    if ((selected?.tipo || 'nomina') === 'nomina') {
-      next.payrollDebtLinks = payrollLinkedDebts.map((d) => ({
-        debtId: d.id,
-        nombre: d.nombre,
-        enabled: true,
-        monto: Math.round(Number(d.derived?.pagoTotalMensual || 0)),
-      }))
-    }
-
-    setNewRecord(next)
-  }, [selected?.id, selected?.tipo, payrollLinkedDebts])
-
-  const latestRecord = useMemo(() => {
-    if (!selected?.registros?.length) return null
-    return sortRecordsDesc(selected.registros)[0]
-  }, [selected])
-
-  const latestAmounts = useMemo(() => deriveRecordAmounts(latestRecord || {}), [latestRecord])
-
-  const openRecordModal = (fuente) => {
-    setSelectedId(fuente.id)
-
+  // ── Modales de registro ────────────────────────────────────────────────────
+  const openNewRecordModal = (fuente) => {
     const next = buildEmptyRecord(fuente.tipo || 'nomina')
+    if ((fuente.tipo || 'nomina') === 'nomina') next.payrollDebtLinks = makePayrollDebtLinks()
+    setEditingRecordId(null)
+    setEditingSourceId(fuente.id)
+    setRecordDraft(next)
+    setIsRecordModalOpen(true)
+  }
 
-    if ((fuente.tipo || 'nomina') === 'nomina') {
-      next.payrollDebtLinks = payrollLinkedDebts.map((d) => ({
-        debtId: d.id,
-        nombre: d.nombre,
-        enabled: true,
-        monto: Math.round(Number(d.derived?.pagoTotalMensual || 0)),
-      }))
-    }
-
-    setNewRecord(next)
+  const openEditRecordModal = (record, fuente) => {
+    const tipo = record.tipoIngreso || fuente.tipo || 'otro'
+    const next = mapRecordToForm(record, tipo, payrollLinkedDebts)
+    setEditingRecordId(record.id)
+    setEditingSourceId(fuente.id)
+    setRecordDraft(next)
     setIsRecordModalOpen(true)
   }
 
   const closeRecordModal = () => {
     setIsRecordModalOpen(false)
-    setNewRecord(buildEmptyRecord(selected?.tipo || 'nomina'))
+    setEditingRecordId(null)
+    setEditingSourceId(null)
   }
 
+  const openEditSourceModal = (source) => {
+    setEditSource({ id: source.id, nombre: source.nombre || '', tipo: source.tipo || 'nomina', periodicidad: source.periodicidad || 'mensual', moneda: source.moneda || 'COP' })
+    setIsEditSourceModalOpen(true)
+  }
+
+  // ── Confirm helper ─────────────────────────────────────────────────────────
+  const confirm = ({ title, message, confirmLabel = 'Confirmar', danger = false, onConfirm }) =>
+    setConfirmState({ title, message, confirmLabel, danger, onConfirm })
+
+  // ── CRUD ───────────────────────────────────────────────────────────────────
   const addFuente = async () => {
     if (!newSource.nombre.trim()) return
-
     if (newSource.tipo === 'arriendo' && !inmuebleOptions.length) {
-      window.alert('Para crear una fuente de arriendo primero debes tener al menos un activo tipo inmueble.')
+      confirm({ title: 'Sin inmuebles', message: 'Primero crea un activo tipo inmueble en la sección Activos.', confirmLabel: 'Entendido', danger: false, onConfirm: () => setConfirmState(null) })
       return
     }
-
-    const payload = createIncomeSource(newSource)
-    await createFuente(payload)
+    await createFuente(createIncomeSource(newSource))
     setNewSource(buildEmptySource())
     setIsSourceModalOpen(false)
   }
 
-  const removeFuente = async (sourceId, nombre) => {
-    const ok = window.confirm(`¿Eliminar la fuente "${nombre}" y todos sus registros?`)
-    if (!ok) return
-    await deleteFuente(sourceId)
-    if (selectedId === sourceId) setSelectedId(null)
+  const saveEditedSource = async () => {
+    if (!editSource?.id || !editSource.nombre.trim()) return
+    await updateFuente(editSource.id, { nombre: editSource.nombre, tipo: editSource.tipo, periodicidad: editSource.periodicidad, moneda: editSource.moneda })
+    setIsEditSourceModalOpen(false)
+    setEditSource(null)
   }
 
-  const buildPayloadForSelectedType = () => {
-    const tipo = selected?.tipo || 'otro'
+  const handleRemoveFuente = (fuente) => {
+    confirm({
+      title: 'Eliminar fuente',
+      message: `¿Eliminar "${fuente.nombre}" y todos sus registros? Esta acción no se puede deshacer.`,
+      confirmLabel: 'Eliminar', danger: true,
+      onConfirm: async () => {
+        await deleteFuente(fuente.id)
+        setDrawerFuente(null)
+        setConfirmState(null)
+      },
+    })
+  }
+
+  const handleRemoveRecord = (record, fuente) => {
+    confirm({
+      title: 'Eliminar registro',
+      message: `¿Eliminar el registro de ${periodLabel(record.periodo)} para "${fuente.nombre}"?`,
+      confirmLabel: 'Eliminar', danger: true,
+      onConfirm: async () => {
+        await deleteRegistro(fuente.id, record.id)
+        setConfirmState(null)
+      },
+    })
+  }
+
+  // ── Build payload ──────────────────────────────────────────────────────────
+  const buildPayload = () => {
+    const fuente = fuentes.find(f => f.id === editingSourceId)
+    const tipo   = fuente?.tipo || 'otro'
+    const r      = recordDraft
 
     if (tipo === 'nomina') {
-      const p = newRecord.payroll || {}
-
-      const debtLinkedComponents = (newRecord.payrollDebtLinks || [])
-        .filter((d) => d.enabled && Number(d.monto || 0) > 0)
-        .map((d) =>
-          createIncomeComponent({
-            clase: 'deduction',
-            subtipo: 'libranza',
-            monto: Number(d.monto || 0),
-            linkedEntityType: 'debt',
-            linkedEntityId: d.debtId,
-            autoSuggested: true,
-            nota: `Descuento nómina asociado a deuda: ${d.nombre}`,
-          })
-        )
-
-      const components = [
-        createIncomeComponent({ clase: 'earning', subtipo: 'salario-base', monto: Number(p.salarioBase || 0) }),
-        createIncomeComponent({ clase: 'earning', subtipo: 'auxilio-transporte', monto: Number(p.auxilioTransporte || 0) }),
-        createIncomeComponent({ clase: 'earning', subtipo: 'horas-extra', monto: Number(p.horasExtra || 0) }),
-        createIncomeComponent({ clase: 'earning', subtipo: 'recargos', monto: Number(p.recargos || 0) }),
-        createIncomeComponent({ clase: 'earning', subtipo: 'comision', monto: Number(p.comision || 0) }),
-        createIncomeComponent({ clase: 'earning', subtipo: 'bonificacion', monto: Number(p.bonificacion || 0) }),
-        createIncomeComponent({ clase: 'earning', subtipo: 'viaticos', monto: Number(p.viaticos || 0) }),
-        createIncomeComponent({ clase: 'earning', subtipo: 'vacaciones', monto: Number(p.vacaciones || 0) }),
-        createIncomeComponent({ clase: 'earning', subtipo: 'otro-devengado', monto: Number(p.otroDevengado || 0) }),
-
-        createIncomeComponent({ clase: 'deduction', subtipo: 'salud', monto: Number(p.salud || 0) }),
-        createIncomeComponent({ clase: 'deduction', subtipo: 'pension', monto: Number(p.pension || 0) }),
-        createIncomeComponent({ clase: 'deduction', subtipo: 'solidaridad', monto: Number(p.solidaridad || 0) }),
-        createIncomeComponent({ clase: 'deduction', subtipo: 'retencion', monto: Number(p.retencion || 0) }),
-        createIncomeComponent({ clase: 'deduction', subtipo: 'libranza', monto: Number(p.libranza || 0) }),
-        createIncomeComponent({ clase: 'deduction', subtipo: 'embargo', monto: Number(p.embargo || 0) }),
-        createIncomeComponent({ clase: 'deduction', subtipo: 'descuento-empresa', monto: Number(p.descuentoEmpresa || 0) }),
-        createIncomeComponent({ clase: 'deduction', subtipo: 'otro-descuento', monto: Number(p.otroDescuento || 0) }),
-
-        createIncomeComponent({ clase: 'allocation', subtipo: 'afc', monto: Number(p.afc || 0) }),
-        createIncomeComponent({ clase: 'allocation', subtipo: 'fpv', monto: Number(p.fpv || 0) }),
-        createIncomeComponent({ clase: 'allocation', subtipo: 'abono-hipoteca', monto: Number(p.abonoHipoteca || 0) }),
-        createIncomeComponent({ clase: 'allocation', subtipo: 'aporte-inversion', monto: Number(p.aporteInversion || 0) }),
-        createIncomeComponent({ clase: 'allocation', subtipo: 'ahorro-meta', monto: Number(p.ahorroMeta || 0) }),
-        createIncomeComponent({ clase: 'allocation', subtipo: 'caja-reserva', monto: Number(p.cajaReserva || 0) }),
-        createIncomeComponent({ clase: 'allocation', subtipo: 'otro-destino', monto: Number(p.otroDestino || 0) }),
-
-        ...debtLinkedComponents,
-      ].filter((c) => Number(c.monto || 0) > 0)
-
-      const payload = createIncomeRecord({
-        tipoIngreso: 'nomina',
-        periodo: newRecord.periodo,
-        fecha: newRecord.fecha,
-      })
-
-      return {
-        ...payload,
-        tipoIngreso: 'nomina',
-        periodo: newRecord.periodo,
-        fecha: newRecord.fecha,
-        bruto: Number(newRecord.bruto || 0),
-        neto: Number(newRecord.neto || 0),
-        montoPrincipal: Number(newRecord.neto || 0),
-        components,
-        nota: newRecord.nota || '',
-      }
+      const p = r.payroll || {}
+      const n = k => Number(p[k] || 0)
+      const debtComps = (r.payrollDebtLinks || [])
+        .filter(d => d.enabled && Number(d.monto || 0) > 0)
+        .map(d => createIncomeComponent({ clase: 'deduction', subtipo: 'libranza', monto: Number(d.monto || 0), linkedEntityType: 'debt', linkedEntityId: d.debtId, autoSuggested: true, nota: `Descuento nómina: ${d.nombre}` }))
+      const comps = [
+        createIncomeComponent({ clase: 'earning',    subtipo: 'salario-base',       monto: n('salarioBase') }),
+        createIncomeComponent({ clase: 'earning',    subtipo: 'auxilio-transporte',  monto: n('auxilioTransporte') }),
+        createIncomeComponent({ clase: 'earning',    subtipo: 'horas-extra',         monto: n('horasExtra') }),
+        createIncomeComponent({ clase: 'earning',    subtipo: 'recargos',            monto: n('recargos') }),
+        createIncomeComponent({ clase: 'earning',    subtipo: 'comision',            monto: n('comision') }),
+        createIncomeComponent({ clase: 'earning',    subtipo: 'bonificacion',        monto: n('bonificacion') }),
+        createIncomeComponent({ clase: 'earning',    subtipo: 'viaticos',            monto: n('viaticos') }),
+        createIncomeComponent({ clase: 'earning',    subtipo: 'vacaciones',          monto: n('vacaciones') }),
+        createIncomeComponent({ clase: 'earning',    subtipo: 'otro-devengado',      monto: n('otroDevengado') }),
+        createIncomeComponent({ clase: 'deduction',  subtipo: 'salud',               monto: n('salud') }),
+        createIncomeComponent({ clase: 'deduction',  subtipo: 'pension',             monto: n('pension') }),
+        createIncomeComponent({ clase: 'deduction',  subtipo: 'solidaridad',         monto: n('solidaridad') }),
+        createIncomeComponent({ clase: 'deduction',  subtipo: 'retencion',           monto: n('retencion') }),
+        createIncomeComponent({ clase: 'deduction',  subtipo: 'libranza',            monto: n('libranza') }),
+        createIncomeComponent({ clase: 'deduction',  subtipo: 'embargo',             monto: n('embargo') }),
+        createIncomeComponent({ clase: 'deduction',  subtipo: 'descuento-empresa',   monto: n('descuentoEmpresa') }),
+        createIncomeComponent({ clase: 'deduction',  subtipo: 'otro-descuento',      monto: n('otroDescuento') }),
+        createIncomeComponent({ clase: 'allocation', subtipo: 'afc',                 monto: n('afc') }),
+        createIncomeComponent({ clase: 'allocation', subtipo: 'fpv',                 monto: n('fpv') }),
+        createIncomeComponent({ clase: 'allocation', subtipo: 'abono-hipoteca',      monto: n('abonoHipoteca') }),
+        createIncomeComponent({ clase: 'allocation', subtipo: 'aporte-inversion',    monto: n('aporteInversion') }),
+        createIncomeComponent({ clase: 'allocation', subtipo: 'ahorro-meta',         monto: n('ahorroMeta') }),
+        createIncomeComponent({ clase: 'allocation', subtipo: 'caja-reserva',        monto: n('cajaReserva') }),
+        createIncomeComponent({ clase: 'allocation', subtipo: 'otro-destino',        monto: n('otroDestino') }),
+        ...debtComps,
+      ].filter(c => Number(c.monto || 0) > 0)
+      const base = createIncomeRecord({ tipoIngreso: 'nomina', periodo: r.periodo, fecha: r.fecha })
+      return { ...base, tipoIngreso: 'nomina', periodo: r.periodo, fecha: r.fecha, bruto: Number(r.bruto || 0), neto: Number(r.neto || 0), montoPrincipal: Number(r.neto || 0), components: comps, nota: r.nota || '' }
     }
 
     if (tipo === 'arriendo') {
-      if (!newRecord.linkedEntityId) {
-        window.alert('Para registrar un arriendo debes vincularlo a un inmueble.')
+      if (!r.linkedEntityId) {
+        confirm({ title: 'Falta el inmueble', message: 'Vincula un inmueble antes de guardar.', confirmLabel: 'Entendido', danger: false, onConfirm: () => setConfirmState(null) })
         return null
       }
-
-      const canon = Number(newRecord.rental.canon || 0)
-      const administracion = Number(newRecord.rental.administracion || 0)
-      const otrosCostos = Number(newRecord.rental.otrosCostos || 0)
-
-      const payload = createIncomeRecord({
-        tipoIngreso: 'arriendo',
-        periodo: newRecord.periodo,
-        fecha: newRecord.fecha,
-      })
-
+      const canon = Number(r.rental.canon || 0)
+      const admin = Number(r.rental.administracion || 0)
+      const otros = Number(r.rental.otrosCostos || 0)
+      const base  = createIncomeRecord({ tipoIngreso: 'arriendo', periodo: r.periodo, fecha: r.fecha })
       return {
-        ...payload,
-        tipoIngreso: 'arriendo',
-        periodo: newRecord.periodo,
-        fecha: newRecord.fecha,
-        linkedEntityType: 'asset',
-        linkedEntityId: newRecord.linkedEntityId,
-        montoPrincipal: canon,
-        bruto: canon,
-        neto: Number(newRecord.neto || 0) || canon - administracion - otrosCostos,
+        ...base, tipoIngreso: 'arriendo', periodo: r.periodo, fecha: r.fecha,
+        linkedEntityType: 'asset', linkedEntityId: r.linkedEntityId,
+        montoPrincipal: canon, bruto: canon,
+        neto: Number(r.neto || 0) || canon - admin - otros,
         components: [
-          createIncomeComponent({
-            clase: 'earning',
-            subtipo: 'canon-arriendo',
-            monto: canon,
-            linkedEntityType: 'asset',
-            linkedEntityId: newRecord.linkedEntityId,
-          }),
-          createIncomeComponent({
-            clase: 'deduction',
-            subtipo: 'administracion',
-            monto: administracion,
-            linkedEntityType: 'asset',
-            linkedEntityId: newRecord.linkedEntityId,
-          }),
-          createIncomeComponent({
-            clase: 'deduction',
-            subtipo: 'otro-descuento',
-            monto: otrosCostos,
-            linkedEntityType: 'asset',
-            linkedEntityId: newRecord.linkedEntityId,
-          }),
-        ].filter((c) => Number(c.monto || 0) > 0),
-        nota: newRecord.nota || '',
+          createIncomeComponent({ clase: 'earning',   subtipo: 'canon-arriendo', monto: canon, linkedEntityType: 'asset', linkedEntityId: r.linkedEntityId }),
+          createIncomeComponent({ clase: 'deduction', subtipo: 'administracion', monto: admin, linkedEntityType: 'asset', linkedEntityId: r.linkedEntityId }),
+          createIncomeComponent({ clase: 'deduction', subtipo: 'otro-descuento', monto: otros, linkedEntityType: 'asset', linkedEntityId: r.linkedEntityId }),
+        ].filter(c => Number(c.monto || 0) > 0),
+        nota: r.nota || '',
       }
     }
 
-    const payload = createIncomeRecord({
-      tipoIngreso: tipo,
-      periodo: newRecord.periodo,
-      fecha: newRecord.fecha,
-    })
-
+    const base = createIncomeRecord({ tipoIngreso: tipo, periodo: r.periodo, fecha: r.fecha })
     return {
-      ...payload,
-      tipoIngreso: tipo,
-      periodo: newRecord.periodo,
-      fecha: newRecord.fecha,
-      montoPrincipal: Number(newRecord.montoPrincipal || 0),
-      bruto: Number(newRecord.bruto || 0) || Number(newRecord.montoPrincipal || 0),
-      neto: Number(newRecord.neto || 0) || Number(newRecord.montoPrincipal || 0),
-      nota: newRecord.nota || '',
-      linkedEntityId: newRecord.linkedEntityId || null,
+      ...base, tipoIngreso: tipo, periodo: r.periodo, fecha: r.fecha,
+      montoPrincipal: Number(r.montoPrincipal || 0),
+      bruto: Number(r.bruto || 0) || Number(r.montoPrincipal || 0),
+      neto:  Number(r.neto  || 0) || Number(r.montoPrincipal || 0),
+      nota: r.nota || '', linkedEntityId: r.linkedEntityId || null,
     }
   }
 
-  const addRegistro = async () => {
-    if (!selected) return
-    if (!newRecord.periodo) return
-
-    const payload = buildPayloadForSelectedType()
+  const saveRecord = async () => {
+    if (!editingSourceId || !recordDraft.periodo) return
+    const payload = buildPayload()
     if (!payload) return
-
-    await createRegistro(selected.id, payload)
+    if (editingRecordId) {
+      const { id: _omit, ...payloadWithoutId } = payload
+      await updateRegistro(editingSourceId, editingRecordId, payloadWithoutId)
+    } else {
+      await createRegistro(editingSourceId, payload)
+    }
     closeRecordModal()
   }
 
-  const removeRegistro = async (recordId) => {
-    if (!selected) return
-    const ok = window.confirm('¿Eliminar este registro?')
-    if (!ok) return
-    await deleteRegistro(selected.id, recordId)
-  }
-
-  const toggleActivo = async (source) => {
-    await updateFuente(source.id, { activo: !source.activo })
-  }
+  // Fuente activa para el modal de registro (puede diferir del drawer)
+  const recordFuente = fuentes.find(f => f.id === editingSourceId) || null
 
   if (!uid) return null
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', gap: 12, flexWrap: 'wrap' }}>
+      {/* ── Banner estado del mes ── */}
+      {(() => {
+  const firstPending = fuentes.find(
+    f => f.activo !== false && !(f.registros || []).some(r => r.periodo === period)
+  )
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      padding: '12px 16px', borderRadius: 14, marginBottom: '1.25rem',
+      background: pendingCount === 0 ? 'rgba(183,222,74,.12)' : 'var(--amber-dim)',
+      border: `1px solid ${pendingCount === 0 ? 'rgba(183,222,74,.3)' : 'rgba(216,162,72,.3)'}`,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        {pendingCount === 0
+          ? <CheckCircle2 size={18} color="#4a6b10" />
+          : <Clock size={18} color="#9b6c1f" />}
         <div>
-          <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)' }}>Fuentes y registros de ingreso</div>
-          <div style={{ fontSize: 12, color: 'var(--text-3)' }}>
-            Registra nómina, arriendos, primas, bonos y otras entradas con mejor trazabilidad.
+          <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>
+            {pendingCount === 0
+              ? `Todo registrado — ${periodLabel(period)}`
+              : `${pendingCount} fuente${pendingCount > 1 ? 's' : ''} pendiente${pendingCount > 1 ? 's' : ''} en ${periodLabel(period)}`}
           </div>
+          {doneCount > 0 && (
+            <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 1 }}>
+              {doneCount} de {doneCount + pendingCount} fuentes registradas este mes
+            </div>
+          )}
         </div>
-
-        <Btn onClick={() => setIsSourceModalOpen(true)} variant="accent" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <Plus size={13} />
-          Nueva fuente
+      </div>
+      <div style={{ display: 'flex', gap: 8 }}>
+        {firstPending && pendingCount === 1 && (
+          <Btn variant="accent" onClick={() => openNewRecordModal(firstPending)} style={{ padding: '6px 12px' }}>
+            <Plus size={13} /> Registrar ahora
+          </Btn>
+        )}
+        <Btn onClick={() => setIsSourceModalOpen(true)} variant="ghost" style={{ padding: '6px 12px' }}>
+          <Plus size={13} /> Nueva fuente
         </Btn>
       </div>
+    </div>
+  )
+})()}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: '1.5rem' }}>
-        <MetricCard label="Fuentes activas" value={String(metrics.totalFuentes || 0)} />
-        <MetricCard label="Ingreso bruto mensual" value={fmtM(metrics.ingresoBrutoMensual || 0)} />
-        <MetricCard label="Ingreso neto mensual" value={fmtM(metrics.ingresoNetoMensual || 0)} color="var(--accent)" />
-        <MetricCard label="Destinaciones mes" value={fmtM(metrics.totalDestinacionesMensual || 0)} color="var(--blue)" />
+      {/* ── KPIs ── */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10, marginBottom: '1.5rem' }}>
+        <MetricCard label="Ingreso bruto"   value={fmtM(metrics.ingresoBrutoMensual      || 0)} />
+        <MetricCard label="Ingreso neto"    value={fmtM(metrics.ingresoNetoMensual       || 0)} color="#4a6b10" />
+        <MetricCard label="Deducciones"     value={fmtM(metrics.totalDeduccionesMensual  || 0)} />
+        <MetricCard label="Destinaciones"   value={fmtM(metrics.totalDestinacionesMensual|| 0)} color="#416fc8" />
       </div>
 
+      {/* ── Grid de fuentes ── */}
       {loading ? (
-        <Card>
-          <div style={{ fontSize: 13, color: 'var(--text-3)' }}>Cargando fuentes de ingreso…</div>
-        </Card>
+        <Card><div style={{ fontSize: 13, color: 'var(--color-text-tertiary)' }}>Cargando fuentes…</div></Card>
       ) : !fuentes.length ? (
-        <EmptyState
-          icon={Wallet}
-          title="Sin fuentes de ingreso"
+        <EmptyState icon={Wallet} title="Sin fuentes de ingreso"
           subtitle="Crea una primera fuente para empezar a registrar ingresos reales."
+          action={<Btn variant="accent" onClick={() => setIsSourceModalOpen(true)}><Plus size={13} /> Nueva fuente</Btn>}
         />
       ) : (
-        <>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 12, marginBottom: '1rem' }}>
-            {fuentes.map((f) => (
-              <FuenteCard
-                key={f.id}
-                item={f}
-                selected={selected?.id === f.id}
-                onSelect={setSelectedId}
-                onRegister={openRecordModal}
-              />
-            ))}
-          </div>
-
-          {selected && (
-            <>
-              <Card style={{ marginBottom: '1rem' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', gap: 12, flexWrap: 'wrap' }}>
-                  <SectionTitle>{selected.nombre}</SectionTitle>
-
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <Btn onClick={() => openRecordModal(selected)} variant="accent">
-                      <Plus size={13} />
-                      Registrar ingreso
-                    </Btn>
-
-                    <Btn onClick={() => toggleActivo(selected)}>
-                      {selected.activo ? 'Desactivar' : 'Activar'}
-                    </Btn>
-
-                    <Btn
-                      variant="danger"
-                      onClick={() => removeFuente(selected.id, selected.nombre)}
-                      style={{ display: 'flex', alignItems: 'center', gap: 6 }}
-                    >
-                      <Trash2 size={13} />
-                      Eliminar
-                    </Btn>
-                  </div>
-                </div>
-
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
-                  <MetricCard label="Tipo" value={getTipoLabel(selected.tipo)} />
-                  <MetricCard label="Periodicidad" value={selected.periodicidad || '—'} />
-                  <MetricCard label="Moneda" value={selected.moneda || 'COP'} />
-                  <MetricCard label="Estado" value={selected.activo ? 'Activa' : 'Inactiva'} color={selected.activo ? 'var(--accent)' : 'var(--text-3)'} />
-                </div>
-
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginTop: 14 }}>
-                  <MetricCard label="Último período" value={latestRecord?.periodo || '—'} />
-                  <MetricCard label="Último bruto" value={fmt(latestAmounts.bruto || 0)} />
-                  <MetricCard label="Último neto" value={fmt(latestAmounts.neto || 0)} color="var(--accent)" />
-                  <MetricCard label="Deducciones + destinaciones" value={fmt((latestAmounts.totalDeductions || 0) + (latestAmounts.totalAllocations || 0))} />
-                </div>
-              </Card>
-
-              <Card>
-                <SectionTitle>Histórico de registros</SectionTitle>
-
-                {!selected.registros?.length ? (
-                  <div style={{ fontSize: 12, color: 'var(--text-3)' }}>Sin registros todavía.</div>
-                ) : (
-                  <>
-                    <div style={{ display: 'grid', gridTemplateColumns: '110px 140px 140px 120px 1fr auto', gap: 8, marginBottom: 6 }}>
-                      {['Período', 'Bruto', 'Neto', 'Tipo', 'Nota', ''].map((h, i) => (
-                        <span key={i} style={{ fontSize: 11, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                          {h}
-                        </span>
-                      ))}
-                    </div>
-
-                    {sortRecordsDesc(selected.registros).map((r) => {
-                      const amounts = deriveRecordAmounts(r)
-
-                      return (
-                        <div
-                          key={r.id}
-                          style={{
-                            display: 'grid',
-                            gridTemplateColumns: '110px 140px 140px 120px 1fr auto',
-                            gap: 8,
-                            alignItems: 'center',
-                            padding: '8px 0',
-                            borderBottom: '1px solid var(--border)',
-                          }}
-                        >
-                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>{r.periodo || '—'}</span>
-                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>{fmt(amounts.bruto)}</span>
-                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--accent)' }}>{fmt(amounts.neto)}</span>
-                          <span style={{ fontSize: 12, color: 'var(--text-3)' }}>{getTipoLabel(r.tipoIngreso || selected.tipo)}</span>
-                          <span style={{ fontSize: 12, color: 'var(--text-3)' }}>{r.nota || '—'}</span>
-                          <button
-                            onClick={() => removeRegistro(r.id)}
-                            style={{
-                              background: 'transparent',
-                              border: 'none',
-                              cursor: 'pointer',
-                              display: 'flex',
-                              alignItems: 'center',
-                              opacity: 0.5,
-                            }}
-                          >
-                            <Trash2 size={13} color="var(--red)" />
-                          </button>
-                        </div>
-                      )
-                    })}
-                  </>
-                )}
-              </Card>
-            </>
-          )}
-        </>
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: fuentes.length === 1 ? '1fr' : 'repeat(2, minmax(0, 1fr))',
+        gap: 12,
+      }}>
+          {fuentes.map(f => (
+            <FuenteCard key={f.id} item={f} period={period}
+              onClick={() => setDrawerFuente(f)} />
+          ))}
+        </div>
       )}
 
-      <Modal
-        open={isSourceModalOpen}
-        onClose={() => {
-          setIsSourceModalOpen(false)
-          setNewSource(buildEmptySource())
-        }}
-        title="Nueva fuente de ingreso"
-        width={760}
-      >
+      {/* ── Drawer: detalle de fuente ── */}
+      <FuenteDrawer
+        fuente={drawerFuenteVivo}
+        period={period}
+        open={!!drawerFuente}
+        onClose={() => setDrawerFuente(null)}
+        onRegister={fuente => { openNewRecordModal(fuente) }}
+        onEditRecord={openEditRecordModal}
+        onEdit={openEditSourceModal}
+        onToggle={src => updateFuente(src.id, { activo: !src.activo })}
+        onRemove={handleRemoveFuente}
+        onRemoveRecord={handleRemoveRecord}
+      />
+
+      {/* ── Modal: Nueva fuente ── */}
+      <Modal open={isSourceModalOpen} onClose={() => { setIsSourceModalOpen(false); setNewSource(buildEmptySource()) }}
+        title="Nueva fuente de ingreso" width={680}>
         <div style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr 1fr', gap: 10 }}>
           <Field label="Nombre">
-            <input
-              type="text"
-              value={newSource.nombre}
-              onChange={(e) => setNewSource((p) => ({ ...p, nombre: e.target.value }))}
-              placeholder="Ej. Nómina Santander, Arriendo apto 409, Dividendos broker"
-            />
+            <input type="text" value={newSource.nombre} placeholder="Ej. Nómina Santander"
+              onChange={e => setNewSource(p => ({ ...p, nombre: e.target.value }))} />
           </Field>
-
           <Field label="Tipo">
-            <select
-              value={newSource.tipo}
-              onChange={(e) => setNewSource((p) => ({ ...p, tipo: e.target.value }))}
-            >
-              {TIPOS_INGRESO.map((t) => (
-                <option key={t} value={t}>
-                  {getTipoLabel(t)}
-                </option>
-              ))}
+            <select value={newSource.tipo} onChange={e => setNewSource(p => ({ ...p, tipo: e.target.value }))}>
+              {TIPOS_INGRESO.map(t => <option key={t} value={t}>{getTipoLabel(t)}</option>)}
             </select>
           </Field>
-
           <Field label="Periodicidad">
-            <select
-              value={newSource.periodicidad}
-              onChange={(e) => setNewSource((p) => ({ ...p, periodicidad: e.target.value }))}
-            >
-              {PERIODICIDADES.map((p) => (
-                <option key={p} value={p}>
-                  {p}
-                </option>
-              ))}
+            <select value={newSource.periodicidad} onChange={e => setNewSource(p => ({ ...p, periodicidad: e.target.value }))}>
+              {PERIODICIDADES.map(p => <option key={p} value={p}>{p}</option>)}
             </select>
           </Field>
         </div>
-
         {newSource.tipo === 'arriendo' && (
-          <Card style={{ marginTop: '1rem', padding: '1rem', background: 'var(--bg-3)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-              <Building2 size={14} color="var(--blue)" />
-              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>Cruce obligatorio con inmueble</div>
+          <div style={{ marginTop: '1rem', padding: '12px 14px', background: 'var(--color-background-tertiary)', borderRadius: 10, display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+            <Building2 size={14} color="var(--color-text-info)" style={{ marginTop: 1, flexShrink: 0 }} />
+            <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', lineHeight: 1.7 }}>
+              Las fuentes de arriendo requieren al menos un activo tipo inmueble registrado en Activos.
             </div>
-            <div style={{ fontSize: 12, color: 'var(--text-3)', lineHeight: 1.7 }}>
-              Las fuentes de arriendo solo deberían crearse si ya existe al menos un activo tipo inmueble.
-            </div>
-          </Card>
+          </div>
         )}
-
         <div style={{ marginTop: '1rem', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-          <Btn
-            variant="subtle"
-            onClick={() => {
-              setIsSourceModalOpen(false)
-              setNewSource(buildEmptySource())
-            }}
-          >
-            Cancelar
-          </Btn>
-          <Btn variant="accent" onClick={addFuente}>
-            <Plus size={13} />
-            Crear fuente
-          </Btn>
+          <Btn variant="subtle" onClick={() => { setIsSourceModalOpen(false); setNewSource(buildEmptySource()) }}>Cancelar</Btn>
+          <Btn variant="accent" onClick={addFuente}><Plus size={13} /> Crear fuente</Btn>
         </div>
       </Modal>
 
+      {/* ── Modal: Editar fuente ── */}
+      <Modal open={isEditSourceModalOpen} onClose={() => { setIsEditSourceModalOpen(false); setEditSource(null) }}
+        title={`Editar fuente${editSource?.nombre ? ` · ${editSource.nombre}` : ''}`} width={680}>
+        {editSource && (
+          <>
+            <div style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr 1fr 1fr', gap: 10 }}>
+              <Field label="Nombre">
+                <input type="text" value={editSource.nombre}
+                  onChange={e => setEditSource(p => ({ ...p, nombre: e.target.value }))} />
+              </Field>
+              <Field label="Tipo">
+                <select value={editSource.tipo} onChange={e => setEditSource(p => ({ ...p, tipo: e.target.value }))}>
+                  {TIPOS_INGRESO.map(t => <option key={t} value={t}>{getTipoLabel(t)}</option>)}
+                </select>
+              </Field>
+              <Field label="Periodicidad">
+                <select value={editSource.periodicidad} onChange={e => setEditSource(p => ({ ...p, periodicidad: e.target.value }))}>
+                  {PERIODICIDADES.map(p => <option key={p} value={p}>{p}</option>)}
+                </select>
+              </Field>
+              <Field label="Moneda">
+                <input type="text" value={editSource.moneda}
+                  onChange={e => setEditSource(p => ({ ...p, moneda: e.target.value }))} />
+              </Field>
+            </div>
+            <div style={{ marginTop: '1rem', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <Btn variant="subtle" onClick={() => { setIsEditSourceModalOpen(false); setEditSource(null) }}>Cancelar</Btn>
+              <Btn variant="accent" onClick={saveEditedSource}><Edit3 size={13} /> Guardar cambios</Btn>
+            </div>
+          </>
+        )}
+      </Modal>
+
+      {/* ── Modal: Registro de ingreso ── */}
       <Modal
         open={isRecordModalOpen}
         onClose={closeRecordModal}
-        title={selected?.tipo === 'nomina' ? `Registrar nómina · ${selected?.nombre || ''}` : `Registrar ingreso · ${selected?.nombre || ''}`}
+        title={editingRecordId
+          ? `Editar registro · ${recordFuente?.nombre || ''}`
+          : recordFuente?.tipo === 'nomina'
+            ? `Registrar nómina · ${recordFuente?.nombre || ''}`
+            : `Registrar ingreso · ${recordFuente?.nombre || ''}`}
         width={820}
-        variant={selected?.tipo === 'nomina' ? 'drawer' : 'center'}
+        variant={recordFuente?.tipo === 'nomina' ? 'drawer' : 'center'}
       >
-        {!selected ? null : selected.tipo === 'nomina' ? (
+        {recordFuente?.tipo === 'nomina' ? (
           <PayrollIncomeForm
-            record={newRecord}
-            setRecord={setNewRecord}
-            payrollLinkedDebts={newRecord.payrollDebtLinks || []}
+            record={recordDraft}
+            setRecord={setRecordDraft}
+            payrollLinkedDebts={recordDraft.payrollDebtLinks || []}
+            lastRecord={!editingRecordId ? sortRecordsDesc(recordFuente?.registros || [])[0] || null : null}
           />
-        ) : selected.tipo === 'arriendo' ? (
-          <RentalIncomeForm
-            record={newRecord}
-            setRecord={setNewRecord}
-            inmuebleOptions={inmuebleOptions}
-          />
+        ) : recordFuente?.tipo === 'arriendo' ? (
+          <RentalIncomeForm record={recordDraft} setRecord={setRecordDraft} inmuebleOptions={inmuebleOptions} />
         ) : (
-          <SimpleIncomeForm record={newRecord} setRecord={setNewRecord} />
+          <SimpleIncomeForm record={recordDraft} setRecord={setRecordDraft} />
         )}
-
         <div style={{ marginTop: '1rem', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-          <Btn variant="subtle" onClick={closeRecordModal}>
-            Cancelar
-          </Btn>
-          <Btn variant="accent" onClick={addRegistro}>
+          <Btn variant="subtle" onClick={closeRecordModal}>Cancelar</Btn>
+          <Btn variant="accent" onClick={saveRecord}>
             <Receipt size={13} />
-            Guardar registro
+            {editingRecordId ? 'Guardar cambios' : 'Guardar registro'}
           </Btn>
         </div>
       </Modal>
+
+      {/* ── Modal de confirmación ── */}
+      {confirmState && (
+        <ConfirmModal
+          open
+          title={confirmState.title}
+          message={confirmState.message}
+          confirmLabel={confirmState.confirmLabel}
+          danger={confirmState.danger}
+          onConfirm={confirmState.onConfirm}
+          onCancel={() => setConfirmState(null)}
+        />
+      )}
     </div>
   )
 }

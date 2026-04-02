@@ -394,3 +394,47 @@ export const StatBar = ({ value, max, color = 'var(--accent)', height = 4 }) => 
     </div>
   )
 }
+
+// ── CurrencyInput — formato de miles en tiempo real ───────────────────────────
+export function CurrencyInput({ value, onChange, placeholder = '0', style = {} }) {
+  const [focused, setFocused] = useState(false)
+
+  const formatted = (v) => {
+    const num = Number(String(v || '').replace(/[^0-9]/g, ''))
+    if (!num && num !== 0) return ''
+    return new Intl.NumberFormat('es-CO').format(num)
+  }
+
+  const handleChange = (e) => {
+    const digits = e.target.value.replace(/[^0-9]/g, '')
+    onChange(digits ? Number(digits) : '')
+  }
+
+  return (
+    <div style={{ position: 'relative' }}>
+      {!focused && Number(value) > 0 && (
+        <span style={{
+          position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)',
+          fontSize: 13, fontFamily: 'var(--font-mono)', color: 'var(--text)',
+          pointerEvents: 'none', zIndex: 1, userSelect: 'none',
+        }}>
+          $ {formatted(value)}
+        </span>
+      )}
+      <input
+        type="number"
+        value={focused ? (value || '') : ''}
+        placeholder={!focused && Number(value) > 0 ? '' : `$ ${placeholder}`}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        onChange={handleChange}
+        style={{
+          ...style,
+          fontFamily: 'var(--font-mono)',
+          color: (!focused && Number(value) > 0) ? 'transparent' : 'inherit',
+          caretColor: 'var(--text)',
+        }}
+      />
+    </div>
+  )
+}

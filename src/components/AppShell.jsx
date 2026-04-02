@@ -232,7 +232,7 @@ export default function AppShell() {
           </div>
         </header>
 
-        <main style={{ flex: 1, padding: '1.75rem 2rem', overflowY: 'auto' }}>
+        <main style={{ flex: 1, padding: '1.75rem 2rem', overflowY: 'auto', overflowX: 'hidden' }}>
           <div style={{ maxWidth: 1000, margin: '0 auto' }}>
             <Outlet />
           </div>

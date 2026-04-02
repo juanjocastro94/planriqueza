@@ -31,7 +31,13 @@ function getAllPeriods(deudasItems = [], inversionesItems = []) {
 
   ;(inversionesItems || []).forEach((inv) => {
     ;(inv?.ejecucion?.movimientos || []).forEach((m) => {
-      if (m?.periodo) set.add(m.periodo)
+      // FIX 1: soportar 'periodo' directo o derivado de 'fecha'
+      const p = m?.periodo
+        ? String(m.periodo)
+        : m?.fecha
+        ? String(m.fecha).slice(0, 7)
+        : null
+      if (p) set.add(p)
     })
   })
 
@@ -76,16 +82,23 @@ function deudaPlanMes(items = []) {
   return items.reduce((s, debt) => {
     const cuota = safeNum(debt?.derived?.pagoTotalMensual)
     const abonoPlan = safeNum(debt?.plan?.abonoMensualCapital)
-
     return s + cuota + abonoPlan
   }, 0)
 }
 
+// FIX 1: inversionRealMes soporta 'periodo' directo O derivado de 'fecha'
 function inversionRealMes(items = [], period) {
   return items.reduce((s, inv) => {
     const movimientos = inv?.ejecucion?.movimientos || []
     const total = movimientos
-      .filter((m) => m.periodo === period)
+      .filter((m) => {
+        const p = m.periodo
+          ? String(m.periodo)
+          : m.fecha
+          ? String(m.fecha).slice(0, 7)
+          : ''
+        return p === period
+      })
       .reduce((acc, m) => acc + safeNum(m.montoCOP), 0)
     return s + total
   }, 0)
@@ -121,9 +134,14 @@ function buildFocus({
   planMensual,
   realMensual,
   flujoLibrePlan,
+  cumplimientoDeuda,
+  cumplimientoInversion,
 }) {
   const cumplimiento = calcularCumplimiento(planMensual, realMensual)
-  const cargaDeuda = ingresoNetoMensual > 0 ? Math.round((deudaPagoMensual / ingresoNetoMensual) * 100) : 0
+  const cargaDeuda =
+    ingresoNetoMensual > 0
+      ? Math.round((deudaPagoMensual / ingresoNetoMensual) * 100)
+      : 0
 
   if (viewMode === 'lifetime') {
     return {
@@ -133,6 +151,7 @@ function buildFocus({
     }
   }
 
+  // FIX 2: si hay real de inversión pero no de deuda, no marcar "sin ejecución"
   if (realMensual === 0) {
     return {
       tone: flujoLibrePlan >= 0 ? 'warning' : 'danger',
@@ -149,6 +168,23 @@ function buildFocus({
       tone: 'success',
       title: `Plan cumplido — ${periodLabel}`,
       body: `Ya ejecutaste ${realMensual.toLocaleString('es-CO')} frente a un plan de ${planMensual.toLocaleString('es-CO')}. Ahora el foco es sostener consistencia.`,
+    }
+  }
+
+  // FIX 2: cumplimiento parcial — distinguir qué bloque está rezagado
+  if (cumplimientoInversion < 50 && cumplimientoDeuda >= 80) {
+    return {
+      tone: 'warning',
+      title: `Inversión rezagada — ${periodLabel}`,
+      body: `Los pagos de deuda van bien (${cumplimientoDeuda}%). El rezago está en inversión (${cumplimientoInversion}%). Registra tus aportes si ya los hiciste.`,
+    }
+  }
+
+  if (cumplimientoDeuda < 50 && cumplimientoInversion >= 80) {
+    return {
+      tone: 'warning',
+      title: `Deuda sin registrar — ${periodLabel}`,
+      body: `La inversión va bien (${cumplimientoInversion}%). Falta registrar los movimientos de deuda del período.`,
     }
   }
 
@@ -177,7 +213,7 @@ function buildFocus({
 
 export function useResumen(uid, options = {}) {
   const {
-    viewMode = 'current', // current | period | lifetime
+    viewMode = 'current',
     selectedPeriod = currentPeriod(),
   } = options
 
@@ -201,7 +237,6 @@ export function useResumen(uid, options = {}) {
 
     const allPeriods = getAllPeriods(deudas.items || [], inversiones.items || [])
 
-    // Snapshots actuales
     const ingresoBrutoMensual = safeNum(ingresos.metrics?.ingresoBrutoMensual)
     const ingresoNetoMensual = safeNum(ingresos.metrics?.ingresoNetoMensual)
 
@@ -223,7 +258,17 @@ export function useResumen(uid, options = {}) {
 
     const planMensual = deudaPagoPlanMensual + inversionPlanMensual
     const realMensual = deudaPagoRealMensual + inversionRealMensual
-    const cumplimientoMensual = calcularCumplimiento(planMensual, realMensual)
+
+    // FIX 3: cumplimiento por bloque independiente
+    const cumplimientoDeuda = calcularCumplimiento(deudaPagoPlanMensual, deudaPagoRealMensual)
+    const cumplimientoInversion = calcularCumplimiento(inversionPlanMensual, inversionRealMensual)
+    // Cumplimiento total: si no hay plan configurado pero sí hay ejecución real → 100%
+    const cumplimientoMensual =
+      planMensual > 0
+        ? calcularCumplimiento(planMensual, realMensual)
+        : realMensual > 0
+        ? 100
+        : 0
 
     const flujoLibrePlan = ingresoNetoMensual - gastoMensualTotal - planMensual
     const flujoLibreReal = ingresoNetoMensual - gastoMensualTotal - realMensual
@@ -240,6 +285,8 @@ export function useResumen(uid, options = {}) {
       planMensual,
       realMensual,
       flujoLibrePlan,
+      cumplimientoDeuda,
+      cumplimientoInversion,
     })
 
     return {
@@ -265,6 +312,8 @@ export function useResumen(uid, options = {}) {
         planMensual,
         realMensual,
         cumplimientoMensual,
+        cumplimientoDeuda,
+        cumplimientoInversion,
         flujoLibrePlan,
         flujoLibreReal,
       },
@@ -293,7 +342,11 @@ export function useResumen(uid, options = {}) {
         planMensual: deudaPagoPlanMensual,
         realMensual: deudaPagoRealMensual,
         realAcumulado: deudaPagoRealAcumulado,
-        pagoMensualTotal: safeNum(deudas.metrics?.pagoMensualTotal || deudas.metrics?.pagoTotalMensual || deudaPagoPlanMensual),
+        pagoMensualTotal: safeNum(
+          deudas.metrics?.pagoMensualTotal ||
+            deudas.metrics?.pagoTotalMensual ||
+            deudaPagoPlanMensual
+        ),
         total: safeNum(deudas.metrics?.totalDeudas),
       },
 
@@ -309,6 +362,8 @@ export function useResumen(uid, options = {}) {
         planMensual,
         realMensual,
         cumplimientoMensual,
+        cumplimientoDeuda,
+        cumplimientoInversion,
         flujoLibrePlan,
         flujoLibreReal,
         patrimonioFinanciero,
